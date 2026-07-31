@@ -1,0 +1,40 @@
+# Normalise to LF in the repository and in every working tree, including Windows.
+#
+# Without this, a Windows checkout applies core.autocrlf and every source file
+# arrives with CRLF, which fails the build: the analyzer set this repo runs on
+# itself requires LF line endings throughout a file.
+* text=auto eol=lf
+
+# Source and project files.
+*.cs           text diff=csharp
+*.slnx         text
+*.sln          text
+*.csproj       text
+*.props        text
+*.targets      text
+*.json         text
+*.xml          text
+*.yml          text
+*.yaml         text
+*.md           text
+*.txt          text
+*.config       text
+*.editorconfig text
+
+# Shell scripts must keep LF to stay executable.
+*.sh           text eol=lf
+
+# Windows scripts need CRLF to be read correctly by cmd.
+*.cmd          text eol=crlf
+*.bat          text eol=crlf
+
+# Binary files: never normalise line endings or attempt a textual diff.
+*.png          binary
+*.jpg          binary
+*.gif          binary
+*.ico          binary
+*.pfx          binary
+*.snk          binary
+*.dll          binary
+*.exe          binary
+*.pdb          binary
