@@ -44,6 +44,13 @@ internal sealed class ApiMemberOrder : IComparer<ISymbol>
     /// <summary>Gets the shared comparer.</summary>
     internal static ApiMemberOrder Instance { get; } = new();
 
+    /// <summary>Gets the shared comparer as a delegate.</summary>
+    /// <remarks>
+    /// Sorting a list through the <see cref="IComparer{T}"/> overload converts <see cref="Compare"/>
+    /// to a delegate internally, allocating one per sort. Holding the conversion here reuses it.
+    /// </remarks>
+    internal static Comparison<ISymbol> Comparison { get; } = Instance.Compare;
+
     /// <inheritdoc/>
     public int Compare(ISymbol? x, ISymbol? y)
     {

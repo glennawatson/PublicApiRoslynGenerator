@@ -15,23 +15,16 @@ namespace PublicApiSharp.Analyzers;
 /// </remarks>
 internal static class ApiConstraints
 {
-    /// <summary>Renders the constraint clauses for a set of type parameters.</summary>
+    /// <summary>Appends the constraint clauses for a set of type parameters.</summary>
+    /// <param name="builder">The builder the declaration is being written into.</param>
     /// <param name="typeParameters">The type parameters.</param>
-    /// <returns>The clauses, each preceded by a space, or an empty string when none are constrained.</returns>
-    internal static string Render(ImmutableArray<ITypeParameterSymbol> typeParameters)
+    /// <remarks>Each clause is preceded by a space; nothing is written when none are constrained.</remarks>
+    internal static void Append(PooledStringBuilder builder, ImmutableArray<ITypeParameterSymbol> typeParameters)
     {
-        if (typeParameters.IsEmpty)
-        {
-            return string.Empty;
-        }
-
-        var builder = new PooledStringBuilder();
         foreach (var typeParameter in typeParameters)
         {
             AppendClause(builder, typeParameter);
         }
-
-        return builder.ToString();
     }
 
     /// <summary>Appends one type parameter's clause, if it has any constraints.</summary>

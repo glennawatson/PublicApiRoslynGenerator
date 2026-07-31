@@ -101,6 +101,25 @@ internal sealed class PooledStringBuilder
         return this;
     }
 
+    /// <summary>Appends the leading part of a string.</summary>
+    /// <param name="value">The string to take from, or null.</param>
+    /// <param name="count">How many characters to take from its start.</param>
+    /// <returns>This builder, for chaining.</returns>
+    /// <remarks>Copying a prefix straight out of the source avoids materializing the substring.</remarks>
+    internal PooledStringBuilder Append(string? value, int count)
+    {
+        if (string.IsNullOrEmpty(value) || count <= 0)
+        {
+            return this;
+        }
+
+        var length = Math.Min(count, value!.Length);
+        EnsureCapacity(_pos + length);
+        value.CopyTo(0, _buffer, _pos, length);
+        _pos += length;
+        return this;
+    }
+
     /// <summary>Appends the invariant decimal rendering of a 32-bit integer.</summary>
     /// <param name="value">The value to append.</param>
     /// <returns>This builder, for chaining.</returns>

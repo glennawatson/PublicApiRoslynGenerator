@@ -14,18 +14,18 @@ namespace PublicApiSharp.Analyzers;
 /// </remarks>
 internal static class ApiModifiers
 {
-    /// <summary>Builds the modifier prefix for a member declaration.</summary>
+    /// <summary>Appends the modifier prefix for a member declaration.</summary>
+    /// <param name="builder">The builder the declaration is being written into.</param>
     /// <param name="member">The member.</param>
-    /// <returns>The prefix, including a trailing space, or an empty string.</returns>
-    internal static string ForMember(ISymbol member)
+    /// <remarks>The prefix includes a trailing space; nothing is written when there is no prefix.</remarks>
+    internal static void AppendMember(PooledStringBuilder builder, ISymbol member)
     {
         // An explicit interface implementation cannot carry accessibility or modifiers at all.
         if (IsExplicitInterfaceImplementation(member))
         {
-            return string.Empty;
+            return;
         }
 
-        var builder = new PooledStringBuilder();
         var inInterface = member.ContainingType is { TypeKind: TypeKind.Interface };
 
         // Interface members are public by default and conventionally written without the keyword.
@@ -37,15 +37,14 @@ internal static class ApiModifiers
         AppendStorageModifiers(builder, member);
         AppendInheritanceModifiers(builder, member, inInterface);
         AppendStateModifiers(builder, member);
-        return builder.ToString();
     }
 
-    /// <summary>Builds the modifier prefix and type keyword for a type declaration.</summary>
+    /// <summary>Appends the modifier prefix and type keyword for a type declaration.</summary>
+    /// <param name="builder">The builder the declaration is being written into.</param>
     /// <param name="type">The type.</param>
-    /// <returns>The prefix ending with the type keyword and a trailing space.</returns>
-    internal static string ForType(INamedTypeSymbol type)
+    /// <remarks>The prefix ends with the type keyword and a trailing space.</remarks>
+    internal static void AppendType(PooledStringBuilder builder, INamedTypeSymbol type)
     {
-        var builder = new PooledStringBuilder();
         AppendAccessibility(builder, type.DeclaredAccessibility);
 
         if (type.TypeKind == TypeKind.Class)
@@ -70,12 +69,12 @@ internal static class ApiModifiers
 
         // 'record class' is legal but redundant; C# is conventionally written with 'record' alone,
         // and the struct form still needs its keyword to say which it is.
-        if (!type.IsRecord || type.TypeKind != TypeKind.Class)
+        if (type.IsRecord && type.TypeKind == TypeKind.Class)
         {
-            Append(builder, TypeKeyword(type));
+            return;
         }
 
-        return builder.ToString();
+        Append(builder, TypeKeyword(type));
     }
 
     /// <summary>Gets the C# keyword introducing a type declaration.</summary>
