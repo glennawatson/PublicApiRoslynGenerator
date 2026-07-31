@@ -16,7 +16,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\PublicApiSharp.Analyzers\PublicApiSharp.Analyzers.csproj" />
+    <!-- Match the slot to the Roslyn pinned above. Without this the benchmark measures the floor
+         build, which is compiled against a different Roslyn and omits the newest slot's source
+         entirely — so the constructs this project exists to measure are not in the binary. -->
+    <ProjectReference Include="..\..\PublicApiSharp.Analyzers\PublicApiSharp.Analyzers.csproj"
+                      AdditionalProperties="RoslynVersion=roslyn5.6" />
   </ItemGroup>
 
   <ItemGroup>

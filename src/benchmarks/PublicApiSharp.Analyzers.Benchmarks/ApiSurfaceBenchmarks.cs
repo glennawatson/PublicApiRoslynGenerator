@@ -19,7 +19,7 @@ namespace PublicApiSharp.Analyzers.Benchmarks;
 /// public surface, so a large library is where any regression shows up. The type count is a
 /// parameter so a change can be judged on how it scales rather than on one data point.
 /// </remarks>
-[MemoryDiagnoser]
+[Config(typeof(AllocationProfilingConfig))]
 public class ApiSurfaceBenchmarks
 {
     /// <summary>The compilation whose surface is rendered.</summary>
@@ -64,7 +64,7 @@ public class ApiSurfaceBenchmarks
                 .Append("    public int Value { get; set; }\n")
                 .Append("    public string? Name { get; init; }\n")
                 .Append("    public System.Collections.Generic.IReadOnlyList<int> Items { get; } = [];\n")
-                .Append("    public void Go(int value, string name = \"\") { }\n")
+                .Append("    public void Go(int value, string name = \"\", System.Threading.CancellationToken token = default) { }\n")
                 .Append("    public T? Find<T>(T seed) where T : class => null;\n")
                 .Append("}\n\n");
         }
