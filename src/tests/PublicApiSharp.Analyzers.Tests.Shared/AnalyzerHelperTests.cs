@@ -75,7 +75,7 @@ public class AnalyzerHelperTests
     [Test]
     public async Task MissingOptionYieldsAnEmptyListAsync()
     {
-        var values = AnalyzerOptionReader.ReadCommaSeparatedList(Options(), "absent.key");
+        var values = AnalyzerOptionReader.ReadCommaSeparatedList(Options(), null, "absent.key");
 
         await Assert.That(values).IsEmpty();
     }
@@ -88,7 +88,7 @@ public class AnalyzerHelperTests
     {
         const int Expected = 2;
 
-        var values = AnalyzerOptionReader.ReadCommaSeparatedList(Options(("k", " a , , b ,")), "k");
+        var values = AnalyzerOptionReader.ReadCommaSeparatedList(Options(("k", " a , , b ,")), null, "k");
 
         await Assert.That(values).Count().IsEqualTo(Expected);
         await Assert.That(values[0]).IsEqualTo("a");
@@ -102,7 +102,7 @@ public class AnalyzerHelperTests
     {
         const int Expected = 2;
 
-        var values = AnalyzerOptionReader.ReadCommaSeparatedList(Options(("k", "a,b")), "k");
+        var values = AnalyzerOptionReader.ReadCommaSeparatedList(Options(("k", "a,b")), null, "k");
 
         await Assert.That(values).Count().IsEqualTo(Expected);
     }

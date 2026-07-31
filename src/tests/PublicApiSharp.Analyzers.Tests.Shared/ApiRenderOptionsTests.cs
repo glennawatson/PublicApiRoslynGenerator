@@ -212,6 +212,53 @@ public class ApiRenderOptionsTests
         await Assert.That(options.IsNamespaceExcluded("Sample")).IsFalse();
     }
 
+    /// <summary>Verifies options set in an ordinary <c>.editorconfig</c> section take effect.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// This is where a reader will put them, and what the documentation shows. A global config is
+    /// the other route; both have to work, or configuration silently does nothing.
+    /// </remarks>
+    [Test]
+    public Task OptionsFromASectionedEditorConfigApplyAsync()
+    {
+        const string Source = """
+                              namespace Sample;
+
+                              [Sample.Marker]
+                              public class Thing
+                              {
+                              }
+
+                              public class MarkerAttribute : System.Attribute
+                              {
+                              }
+                              """;
+
+        const string Baseline = """
+                                namespace Sample;
+
+                                public class MarkerAttribute : System.Attribute
+                                {
+                                    public MarkerAttribute() { }
+                                }
+
+                                public class Thing
+                                {
+                                    public Thing() { }
+                                }
+
+                                """;
+
+        const string EditorConfig = """
+                                    root = true
+
+                                    [*.cs]
+                                    publicapisharp.excluded_attributes = Sample.MarkerAttribute
+                                    """;
+
+        return PublicApiVerifier.AnalyzeWithEditorConfigAsync(Source, Baseline, EditorConfig);
+    }
+
     /// <summary>Builds options from the given editorconfig entries.</summary>
     /// <param name="entries">The key/value pairs to configure.</param>
     /// <returns>The options.</returns>

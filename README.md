@@ -127,7 +127,10 @@ src/MyProject/
 
 ## Configuration
 
-Options are read from `.editorconfig`:
+Options are read from `.editorconfig`. They describe the whole surface rather than one file, so
+write them once for the project — under `[*.cs]`, or `[*]` — rather than varying them between
+folders. A global config (`.globalconfig`, or anything with `is_global = true`) is also read, and
+takes precedence where both set the same key.
 
 | Key | Default | Purpose |
 | --- | --- | --- |
@@ -160,6 +163,8 @@ names.
 | `AssemblyKeyFile`, `AssemblyKeyName`, `AssemblyDelaySign`, `AssemblySignatureKey`, `AssemblyCulture` | signing and build configuration |
 | `CompilerGenerated`, `Nullable`, `NullableContext`, `IsReadOnly`, `IsByRefLike`, `RequiredMember`, `Extension`, and the rest of the compiler's own markers | described by the declaration itself |
 | `Debuggable`, `DebuggerStepThrough`, `DebuggerNonUserCode`, `GeneratedCode`, `DefaultMember` | build and tooling detail |
+| `SuppressMessage` | conditional on `CODE_ANALYSIS`, so whether it reaches the assembly at all depends on how the project is built |
+| `UnconditionalSuppressMessage` | a justification aimed at whoever reads the source; rewording it is not an API change |
 
 To keep one of them, name it in `included_attributes`:
 

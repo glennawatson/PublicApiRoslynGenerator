@@ -7,13 +7,45 @@ namespace RoslynCommon.Analyzers;
 /// <summary>Reads editorconfig settings, matching the CA-analyzer key convention.</summary>
 internal static class AnalyzerOptionReader
 {
+    /// <summary>Reads a setting from the first source that has it.</summary>
+    /// <param name="primary">The options consulted first.</param>
+    /// <param name="fallback">The options consulted when the primary does not have the key.</param>
+    /// <param name="key">The option key.</param>
+    /// <param name="value">The value found.</param>
+    /// <returns><see langword="true"/> when either source had the key.</returns>
+    internal static bool TryRead(
+        AnalyzerConfigOptions primary,
+        AnalyzerConfigOptions? fallback,
+        string key,
+        out string value)
+    {
+        if (primary.TryGetValue(key, out var found))
+        {
+            value = found;
+            return true;
+        }
+
+        if (fallback is not null && fallback.TryGetValue(key, out found))
+        {
+            value = found;
+            return true;
+        }
+
+        value = string.Empty;
+        return false;
+    }
+
     /// <summary>Reads a comma-separated list, trimming entries and dropping empty ones.</summary>
-    /// <param name="options">The analyzer config options.</param>
+    /// <param name="primary">The options consulted first.</param>
+    /// <param name="fallback">The options consulted when the primary does not have the key.</param>
     /// <param name="key">The option key.</param>
     /// <returns>The parsed values, or an empty array when the key is not set.</returns>
-    internal static string[] ReadCommaSeparatedList(AnalyzerConfigOptions options, string key)
+    internal static string[] ReadCommaSeparatedList(
+        AnalyzerConfigOptions primary,
+        AnalyzerConfigOptions? fallback,
+        string key)
     {
-        if (!options.TryGetValue(key, out var value))
+        if (!TryRead(primary, fallback, key, out var value))
         {
             return [];
         }

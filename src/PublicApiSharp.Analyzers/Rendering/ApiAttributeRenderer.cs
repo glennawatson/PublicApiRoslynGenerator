@@ -40,6 +40,8 @@ internal static class ApiAttributeRenderer
         "System.Reflection.AssemblyVersionAttribute",
         "System.Runtime.Versioning.TargetFrameworkAttribute",
         "System.Runtime.Versioning.TargetPlatformAttribute",
+        "System.Diagnostics.CodeAnalysis.SuppressMessageAttribute",
+        "System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessageAttribute",
         "System.Diagnostics.DebuggableAttribute",
         "System.Diagnostics.DebuggerNonUserCodeAttribute",
         "System.Diagnostics.DebuggerStepThroughAttribute",

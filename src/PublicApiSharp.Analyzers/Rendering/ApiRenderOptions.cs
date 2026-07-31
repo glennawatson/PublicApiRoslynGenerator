@@ -55,11 +55,19 @@ internal sealed class ApiRenderOptions
 
     /// <summary>Reads the options for a compilation.</summary>
     /// <param name="options">The analyzer config options for the compilation.</param>
+    /// <param name="fileScoped">Options from a file the compilation contains, or <see langword="null"/>.</param>
     /// <returns>The render options.</returns>
-    internal static ApiRenderOptions Read(AnalyzerConfigOptions options)
+    /// <remarks>
+    /// These describe the compilation as a whole, so the natural source is the global options: a
+    /// global config, and whatever MSBuild makes compiler-visible. An ordinary <c>.editorconfig</c>
+    /// is sectioned and therefore per-file, so nothing written in one ever reaches those, which is
+    /// why a file's options are consulted as well. A setting of this kind is meant to be written
+    /// once for the project rather than varied between files.
+    /// </remarks>
+    internal static ApiRenderOptions Read(AnalyzerConfigOptions options, AnalyzerConfigOptions? fileScoped = null)
     {
         var includeAssemblyAttributes = true;
-        if (options.TryGetValue($"{Prefix}include_assembly_attributes", out var value)
+        if (AnalyzerOptionReader.TryRead(options, fileScoped, $"{Prefix}include_assembly_attributes", out var value)
             && bool.TryParse(value, out var parsed))
         {
             includeAssemblyAttributes = parsed;
@@ -67,9 +75,9 @@ internal sealed class ApiRenderOptions
 
         return new(
             includeAssemblyAttributes,
-            AnalyzerOptionReader.ReadCommaSeparatedList(options, $"{Prefix}excluded_attributes"),
-            AnalyzerOptionReader.ReadCommaSeparatedList(options, $"{Prefix}included_attributes"),
-            AnalyzerOptionReader.ReadCommaSeparatedList(options, $"{Prefix}excluded_namespace_prefixes"));
+            AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}excluded_attributes"),
+            AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}included_attributes"),
+            AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}excluded_namespace_prefixes"));
     }
 
     /// <summary>Determines whether configuration excludes an attribute.</summary>

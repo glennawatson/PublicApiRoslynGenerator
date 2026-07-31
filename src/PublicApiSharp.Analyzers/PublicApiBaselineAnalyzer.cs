@@ -119,6 +119,23 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
         return symbol.ContainingType is { } containingType ? SymbolLocation(containingType) : Location.None;
     }
 
+    /// <summary>Gets the analyzer config options of a file the compilation contains.</summary>
+    /// <param name="options">The analyzer options.</param>
+    /// <param name="compilation">The compilation.</param>
+    /// <returns>The first syntax tree's options, or <see langword="null"/> when there is no tree.</returns>
+    /// <remarks>
+    /// Settings that describe the whole surface have no one file to be asked about, so the first
+    /// tree stands for all of them. That is exact when the setting is written once for the project,
+    /// which is how a compilation-wide setting is meant to be written.
+    /// </remarks>
+    private static AnalyzerConfigOptions? FileScopedOptions(AnalyzerOptions options, Compilation compilation)
+    {
+        using var trees = compilation.SyntaxTrees.GetEnumerator();
+        return trees.MoveNext()
+            ? options.AnalyzerConfigOptionsProvider.GetOptions(trees.Current)
+            : null;
+    }
+
     /// <summary>Resolves the baseline once, then wires up the per-symbol and end-of-compilation rules.</summary>
     /// <param name="context">The compilation start context.</param>
     private static void OnCompilationStart(CompilationStartAnalysisContext context)
@@ -150,8 +167,12 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var options = ApiRenderOptions.Read(globalOptions);
         var compilation = context.Compilation;
+
+        // The global options carry a global config and the MSBuild properties. An ordinary
+        // .editorconfig is sectioned, so its entries only exist against a file: without one of
+        // those to fall back on, everything written in one would be silently ignored.
+        var options = ApiRenderOptions.Read(globalOptions, FileScopedOptions(context.Options, compilation));
 
         // Rendering the whole surface is compilation-wide work, so it happens once, on first use,
         // and every symbol callback then costs a dictionary lookup.

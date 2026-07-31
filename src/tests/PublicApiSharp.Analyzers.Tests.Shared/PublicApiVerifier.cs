@@ -62,6 +62,31 @@ internal static class PublicApiVerifier
         await test.RunAsync(CancellationToken.None);
     }
 
+    /// <summary>Runs the analyzer with options supplied by an ordinary sectioned <c>.editorconfig</c>.</summary>
+    /// <param name="source">The C# source, with diagnostic markup.</param>
+    /// <param name="baseline">The baseline file's contents.</param>
+    /// <param name="editorConfig">The contents of the <c>.editorconfig</c>, sections and all.</param>
+    /// <param name="expected">Diagnostics expected in addition to any markup in the source.</param>
+    /// <returns>A task that represents the asynchronous verification operation.</returns>
+    /// <remarks>
+    /// Distinct from <see cref="AnalyzeWithConfigAsync"/>, which writes a global config. The two
+    /// reach an analyzer by different routes, and configuration that works through one does not
+    /// automatically work through the other.
+    /// </remarks>
+    internal static async Task AnalyzeWithEditorConfigAsync(
+        string source,
+        string baseline,
+        string editorConfig,
+        params DiagnosticResult[] expected)
+    {
+        var test = new CSharpAnalyzerTest<PublicApiBaselineAnalyzer, DefaultVerifier> { TestCode = source };
+        test.TestState.AdditionalFiles.Add((BaselineFileName, baseline));
+        test.TestState.AnalyzerConfigFiles.Add(("/.editorconfig", editorConfig));
+        test.ExpectedDiagnostics.AddRange(expected);
+        PromoteNullableWarnings(test.SolutionTransforms);
+        await test.RunAsync(CancellationToken.None);
+    }
+
     /// <summary>Runs the analyzer with a global config and an optionally differently-named baseline.</summary>
     /// <param name="source">The C# source, with diagnostic markup.</param>
     /// <param name="baseline">The baseline file's contents, or <see langword="null"/> for no baseline at all.</param>
