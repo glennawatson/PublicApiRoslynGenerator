@@ -16,7 +16,10 @@
   <ItemGroup>
     <InternalsVisibleTo Include="PublicApiSharp.Analyzers.CodeFixes" />
     <InternalsVisibleTo Include="PublicApiSharp.Analyzers.Benchmarks" />
-    <InternalsVisibleTo Include="PublicApiSharp.Analyzers.Tests" />
+    <InternalsVisibleTo Include="PublicApiSharp.Analyzers.Tests.Roslyn48" />
+    <InternalsVisibleTo Include="PublicApiSharp.Analyzers.Tests.Roslyn414" />
+    <InternalsVisibleTo Include="PublicApiSharp.Analyzers.Tests.Roslyn53" />
+    <InternalsVisibleTo Include="PublicApiSharp.Analyzers.Tests.Roslyn56" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The same shared tests, run against the roslyn5.3 slot. -->
+  <PropertyGroup>
+    <RoslynVersion>roslyn5.3</RoslynVersion>
+    <MicrosoftCodeAnalysisVersion>5.3.0</MicrosoftCodeAnalysisVersion>
+    <AssemblyName>PublicApiSharp.Analyzers.Tests.Roslyn53</AssemblyName>
+  </PropertyGroup>
+
+  <Import Project="..\PublicApiSharp.Analyzers.Tests.Shared\PublicApiSharp.Analyzers.Tests.props" />
+
+</Project>

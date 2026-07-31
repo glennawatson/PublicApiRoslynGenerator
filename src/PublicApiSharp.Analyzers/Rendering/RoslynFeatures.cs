@@ -49,6 +49,17 @@ internal static class RoslynFeatures
         false;
 #endif
 
+    /// <summary>
+    /// Gets a value indicating whether this host understands the <c>allows ref struct</c> constraint,
+    /// both in syntax and in the symbol model. Arrives with C# 13 in Roslyn 4.14.
+    /// </summary>
+    internal static bool SupportsRefStructConstraints =>
+#if ROSLYN_4_14_OR_GREATER
+        true;
+#else
+        false;
+#endif
+
     /// <summary>Determines whether a type is a C# 14 extension container rather than a normal nested type.</summary>
     /// <param name="type">The type.</param>
     /// <returns><see langword="true"/> when the type is an extension container.</returns>

@@ -47,7 +47,7 @@
     <IsPackable>false</IsPackable>
     <IsPublishable>false</IsPublishable>
 
-    <IsTestProject>$(MSBuildProjectName.EndsWith('Tests'))</IsTestProject>
+    <IsTestProject>$(MSBuildProjectName.Contains('Tests'))</IsTestProject>
   </PropertyGroup>
 
   <!--

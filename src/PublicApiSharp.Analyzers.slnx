@@ -16,7 +16,10 @@
     <Project Path="PublicApiSharp.Analyzers.Package/PublicApiSharp.Analyzers.Packages.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/PublicApiSharp.Analyzers.Tests/PublicApiSharp.Analyzers.Tests.csproj" />
+    <Project Path="tests/PublicApiSharp.Analyzers.Tests.Roslyn48/PublicApiSharp.Analyzers.Tests.Roslyn48.csproj" />
+    <Project Path="tests/PublicApiSharp.Analyzers.Tests.Roslyn414/PublicApiSharp.Analyzers.Tests.Roslyn414.csproj" />
+    <Project Path="tests/PublicApiSharp.Analyzers.Tests.Roslyn53/PublicApiSharp.Analyzers.Tests.Roslyn53.csproj" />
+    <Project Path="tests/PublicApiSharp.Analyzers.Tests.Roslyn56/PublicApiSharp.Analyzers.Tests.Roslyn56.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/PublicApiSharp.Analyzers.Benchmarks/PublicApiSharp.Analyzers.Benchmarks.csproj" />

@@ -92,9 +92,21 @@ jobs:
             # so the slower report overwrites the other and one package lands at 0%
             # in the coverage import. Distinct results directories keep both reports;
             # the shared sonar-coverage.xml name still matches the import glob below.
-            -   name: Test with MTP coverage
+            -   name: Test Roslyn48 with MTP coverage
                 working-directory: src
-                run: dotnet test --project tests/PublicApiSharp.Analyzers.Tests/PublicApiSharp.Analyzers.Tests.csproj --configuration Release --no-restore -- --coverage --coverage-output-format xml --results-directory TestResults/PublicApiSharp --coverage-output sonar-coverage.xml
+                run: dotnet test --project tests/PublicApiSharp.Analyzers.Tests.Roslyn48/PublicApiSharp.Analyzers.Tests.Roslyn48.csproj --configuration Release --no-restore -- --coverage --coverage-output-format xml --results-directory TestResults/Roslyn48 --coverage-output sonar-coverage.xml
+
+            -   name: Test Roslyn414 with MTP coverage
+                working-directory: src
+                run: dotnet test --project tests/PublicApiSharp.Analyzers.Tests.Roslyn414/PublicApiSharp.Analyzers.Tests.Roslyn414.csproj --configuration Release --no-restore -- --coverage --coverage-output-format xml --results-directory TestResults/Roslyn414 --coverage-output sonar-coverage.xml
+
+            -   name: Test Roslyn53 with MTP coverage
+                working-directory: src
+                run: dotnet test --project tests/PublicApiSharp.Analyzers.Tests.Roslyn53/PublicApiSharp.Analyzers.Tests.Roslyn53.csproj --configuration Release --no-restore -- --coverage --coverage-output-format xml --results-directory TestResults/Roslyn53 --coverage-output sonar-coverage.xml
+
+            -   name: Test Roslyn56 with MTP coverage
+                working-directory: src
+                run: dotnet test --project tests/PublicApiSharp.Analyzers.Tests.Roslyn56/PublicApiSharp.Analyzers.Tests.Roslyn56.csproj --configuration Release --no-restore -- --coverage --coverage-output-format xml --results-directory TestResults/Roslyn56 --coverage-output sonar-coverage.xml
 
             -   name: End Sonar analysis
                 working-directory: src

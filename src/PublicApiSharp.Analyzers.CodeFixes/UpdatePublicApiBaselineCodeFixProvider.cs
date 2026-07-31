@@ -99,12 +99,10 @@ public sealed class UpdatePublicApiBaselineCodeFixProvider : CodeFixProvider
         public override Task<CodeAction?> GetFixAsync(FixAllContext fixAllContext)
         {
             var project = fixAllContext.Project;
-            return Task.FromResult(project is null
-                ? null
-                : CodeAction.Create(
-                    Title,
-                    cancellationToken => UpdateBaselineAsync(project, cancellationToken),
-                    equivalenceKey: Title));
+            return Task.FromResult<CodeAction?>(CodeAction.Create(
+                Title,
+                cancellationToken => UpdateBaselineAsync(project, cancellationToken),
+                equivalenceKey: Title));
         }
     }
 }

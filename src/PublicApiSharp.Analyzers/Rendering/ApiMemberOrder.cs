@@ -14,10 +14,11 @@ namespace PublicApiSharp.Analyzers;
 /// method up a file is not an API change and must not show up as one in the diff.
 /// </para>
 /// <para>
-/// Members group by kind first — constructors, then fields, properties, events, methods and nested
-/// types — because that is how a reader scans an unfamiliar type. Instance members precede static
-/// ones within a group, and ties break on name, then generic arity, then parameter count, then
-/// parameter types, so overloads sit together in a predictable sequence.
+/// Members group by kind first — constructors, then fields, properties, events, then methods —
+/// because that is how a reader scans an unfamiliar type. Nested types are not sorted here; the
+/// renderer emits them after the members. Instance members precede static ones within a group, and
+/// ties break on name, then generic arity, then parameter count, then parameter types, so overloads
+/// sit together in a predictable sequence.
 /// </para>
 /// </remarks>
 internal sealed class ApiMemberOrder : IComparer<ISymbol>
@@ -37,14 +38,8 @@ internal sealed class ApiMemberOrder : IComparer<ISymbol>
     /// <summary>The rank methods and operators sort under.</summary>
     private const int MethodRank = 4;
 
-    /// <summary>The rank C# 14 extension blocks sort under.</summary>
-    private const int ExtensionBlockRank = 5;
-
-    /// <summary>The rank nested types sort under.</summary>
-    private const int NestedTypeRank = 6;
-
-    /// <summary>The rank anything else sorts under.</summary>
-    private const int OtherRank = 7;
+    /// <summary>The rank anything that is not a member sorts under.</summary>
+    private const int OtherRank = 5;
 
     /// <summary>Gets the shared comparer.</summary>
     internal static ApiMemberOrder Instance { get; } = new();
@@ -131,7 +126,9 @@ internal sealed class ApiMemberOrder : IComparer<ISymbol>
         IPropertySymbol => PropertyRank,
         IEventSymbol => EventRank,
         IMethodSymbol => MethodRank,
-        INamedTypeSymbol named => RoslynFeatures.IsExtensionContainer(named) ? ExtensionBlockRank : NestedTypeRank,
+
+        // Nested types never reach the comparer: the renderer filters them out of the member list
+        // and emits them afterwards, so there is no type arm to keep here.
         _ => OtherRank,
     };
 

@@ -11,7 +11,7 @@ C# file and reports an analyzer error when the compilation and the file disagree
 # Run from src/
 
 dotnet build PublicApiSharp.Analyzers.slnx -c Release
-dotnet test  --project tests/PublicApiSharp.Analyzers.Tests/PublicApiSharp.Analyzers.Tests.csproj -c Release
+dotnet test  --solution PublicApiSharp.Analyzers.slnx -c Release   # runs every Roslyn slot
 
 # TUnit / Microsoft.Testing.Platform notes
 # - `dotnet test` must be run from src/ so the relative project paths resolve.
@@ -19,7 +19,7 @@ dotnet test  --project tests/PublicApiSharp.Analyzers.Tests/PublicApiSharp.Analy
 # - For focused local runs `dotnet run` is easier than `dotnet test`, because TUnit exposes its
 #   CLI flags directly there.
 # - TUnit filtering uses tree-node filters, not VSTest `--filter` syntax:
-#     dotnet run --project tests/PublicApiSharp.Analyzers.Tests/PublicApiSharp.Analyzers.Tests.csproj -c Release -- --treenode-filter "/*/*/ApiSurfaceRenderingTests/*"
+#     dotnet run --project tests/PublicApiSharp.Analyzers.Tests.Roslyn56/PublicApiSharp.Analyzers.Tests.Roslyn56.csproj -c Release -- --treenode-filter "/*/*/ApiSurfaceRenderingTests/*"
 
 # Build a specific Roslyn slot
 dotnet build PublicApiSharp.Analyzers.CodeFixes/PublicApiSharp.Analyzers.CodeFixes.csproj -c Release -p:RoslynVersion=roslyn5.6
@@ -31,6 +31,16 @@ dotnet pack PublicApiSharp.Analyzers.Package/PublicApiSharp.Analyzers.Packages.c
 **Every slot is the gate, not just the floor.** The `#if` paths differ per slot, so a green
 `roslyn4.8` build proves little. Build `roslyn4.8`, `roslyn4.14`, `roslyn5.3` and `roslyn5.6` before
 pushing.
+
+The tests enforce this for you. There is one test project per slot — `tests/PublicApiSharp.Analyzers.Tests.Roslyn48`
+and friends — and each is a few lines that set `$(RoslynVersion)` and import
+`tests/PublicApiSharp.Analyzers.Tests.Shared/PublicApiSharp.Analyzers.Tests.props`. The test *sources*
+live once, in that Shared folder, and are linked into all four. So `dotnet test --solution` runs the
+whole suite against every slot, and a test whose source the floor compiler cannot even parse fails
+there rather than silently passing everywhere else.
+
+Add a test by dropping a `.cs` file in the Shared folder; it is picked up by all four projects. Gate
+anything slot-specific on a `RoslynFeatures` capability rather than on `#if` in the test.
 
 ## How the thing works
 

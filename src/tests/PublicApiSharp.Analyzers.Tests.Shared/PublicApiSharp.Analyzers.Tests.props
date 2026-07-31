@@ -1,0 +1,42 @@
+<Project>
+
+  <!--
+    Shared by one test project per Roslyn slot. The same tests run against every slot the package
+    ships, so a construct that renders correctly on one compiler but not another is caught here
+    rather than by a consumer whose SDK happens to load the other slot.
+
+    Each importing project sets $(RoslynVersion) and $(MicrosoftCodeAnalysisVersion) before this
+    import, and those flow to the analyzer through the project references below.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>PublicApiSharp.Analyzers.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" />
+  </ItemGroup>
+
+  <!--
+    AdditionalProperties makes each slot's test project reference its own build of the analyzer.
+    The analyzer segregates bin/ and obj/ by $(RoslynVersion), so the four builds never collide.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\PublicApiSharp.Analyzers.CodeFixes\PublicApiSharp.Analyzers.CodeFixes.csproj"
+                     AdditionalProperties="RoslynVersion=$(RoslynVersion)" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\PublicApiSharp.Analyzers\PublicApiSharp.Analyzers.csproj"
+                     AdditionalProperties="RoslynVersion=$(RoslynVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)*.cs" LinkBase="Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="PublicApiSharp.Analyzers" />
+    <Using Include="RoslynCommon.Analyzers" />
+  </ItemGroup>
+
+</Project>

@@ -13,6 +13,9 @@ namespace PublicApiSharp.Analyzers.Tests;
 /// </remarks>
 public class ApiMemberOrderTests
 {
+    /// <summary>The metadata name of the type whose members these tests order.</summary>
+    private const string ThingMetadataName = "Sample.Thing";
+
     /// <summary>The type whose members these tests order.</summary>
     private const string Source = """
                                   using System;
@@ -98,13 +101,41 @@ public class ApiMemberOrderTests
     public async Task ComparerHandlesMissingSymbolsAsync()
     {
         var compilation = ApiSurfaceTestHost.Compile(Source);
-        var thing = compilation.GetTypeByMetadataName("Sample.Thing")!;
+        var thing = compilation.GetTypeByMetadataName(ThingMetadataName)!;
         var member = thing.GetMembers("Property")[0];
 
         await Assert.That(ApiMemberOrder.Instance.Compare(null, null)).IsEqualTo(0);
         await Assert.That(ApiMemberOrder.Instance.Compare(null, member)).IsLessThan(0);
         await Assert.That(ApiMemberOrder.Instance.Compare(member, null)).IsGreaterThan(0);
         await Assert.That(ApiMemberOrder.Instance.Compare(member, member)).IsEqualTo(0);
+    }
+
+    /// <summary>Verifies a method compared with itself runs the whole signature comparison.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// Every earlier tie-break returns equal, so this is the path that walks the parameter list to
+    /// the end — the case a sort hits whenever it re-examines an element.
+    /// </remarks>
+    [Test]
+    public async Task IdenticalMethodsCompareEqualAsync()
+    {
+        const int TwoParameters = 2;
+
+        var compilation = ApiSurfaceTestHost.Compile(Source);
+        var thing = compilation.GetTypeByMetadataName(ThingMetadataName)!;
+
+        ISymbol? twoParameters = null;
+        foreach (var candidate in thing.GetMembers("Go"))
+        {
+            if (candidate is IMethodSymbol method && method.Parameters.Length == TwoParameters)
+            {
+                twoParameters = method;
+                break;
+            }
+        }
+
+        await Assert.That(twoParameters).IsNotNull();
+        await Assert.That(ApiMemberOrder.Instance.Compare(twoParameters, twoParameters)).IsEqualTo(0);
     }
 
     /// <summary>Verifies a symbol kind outside the surface still compares without throwing.</summary>
@@ -117,7 +148,7 @@ public class ApiMemberOrderTests
     public async Task UnknownKindsSortLastAsync()
     {
         var compilation = ApiSurfaceTestHost.Compile(Source);
-        var thing = compilation.GetTypeByMetadataName("Sample.Thing")!;
+        var thing = compilation.GetTypeByMetadataName(ThingMetadataName)!;
         var property = thing.GetMembers("Property")[0];
         ISymbol? parameter = null;
         foreach (var candidate in thing.GetMembers("Go"))
