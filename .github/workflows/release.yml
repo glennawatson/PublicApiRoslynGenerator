@@ -25,7 +25,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     outputs:
       version: ${{ steps.ver.outputs.version }}
       tag: ${{ steps.ver.outputs.tag }}
@@ -44,7 +44,7 @@ jobs:
             8.0.x
             10.0.x
 
-      - name: Compute next version + create tag
+      - name: Compute next version
         id: ver
         env:
           BUMP: ${{ inputs.bump }}
@@ -78,11 +78,11 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+          # The tag is not created here. Everything after this point can still fail, and
+          # a tag pushed up front outlives the failure -- it has to be hunted down and
+          # deleted before the run can be retried. Creating it with the release instead
+          # means a version is only marked once it has actually shipped.
           echo "MINVERVERSIONOVERRIDE=$VERSION" >> "$GITHUB_ENV"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git tag "$VERSION"
-          git push origin "$VERSION"
 
       - name: Restore
         working-directory: src
@@ -263,6 +263,76 @@ jobs:
           path: signed/*.nupkg
           if-no-files-found: error
 
+      # Everything below runs only after something has already failed. The login step
+      # otherwise ends as a 60-second hang with nothing to read: the app writes little,
+      # and what the dialog was showing is lost with the display.
+      - name: Capture signing diagnostics
+        if: failure()
+        shell: bash
+        env:
+          DISPLAY: ':99'
+        run: |
+          # Best effort. Nothing here may turn a diagnosable failure into a second one.
+          set +e
+          OUT="$RUNNER_TEMP/signing-diagnostics"
+          mkdir -p "$OUT"
+
+          # The window inventory is the single most useful record: whether the login form
+          # gave way to the success dialog, or was still sitting there being clicked at.
+          {
+            echo "== windows on $DISPLAY =="
+            for w in $(xdotool search --name '' 2>/dev/null); do
+              printf '%s\t%s\t%s\n' \
+                "$w" \
+                "$(xdotool getwindowname "$w" 2>/dev/null)" \
+                "$(xdotool getwindowgeometry --shell "$w" 2>/dev/null | tr '\n' ' ')"
+            done
+          } > "$OUT/windows.txt" 2>&1
+
+          for name in simplysign xvfb fluxbox; do
+            cp "$RUNNER_TEMP/$name.log" "$OUT/$name.log" 2>/dev/null
+          done
+
+          # An error the app shows in the dialog and never writes down is only visible in
+          # a picture. NOTE: that picture includes the login form, so it can show the
+          # account id that was typed into it - hence the short retention below.
+          if command -v import >/dev/null 2>&1; then
+            import -window root "$OUT/screen.png" 2>"$OUT/capture.err"
+          elif command -v xwd >/dev/null 2>&1; then
+            xwd -root -silent >"$OUT/screen.xwd" 2>"$OUT/capture.err"
+            if command -v convert >/dev/null 2>&1; then
+              convert "$OUT/screen.xwd" "$OUT/screen.png" 2>>"$OUT/capture.err" && rm -f "$OUT/screen.xwd"
+            fi
+          else
+            echo "no capture tool (import/xwd) in this image" >"$OUT/capture.err"
+          fi
+
+          # A capture that quietly produced nothing would leave the same blind failure this
+          # step exists to remove, so say so rather than shipping an empty artifact.
+          if [ ! -s "$OUT/screen.png" ] && [ ! -s "$OUT/screen.xwd" ]; then
+            echo "no screenshot captured:"
+            cat "$OUT/capture.err" 2>/dev/null || echo "(no reason recorded)"
+          fi
+
+          echo "::group::window inventory"
+          cat "$OUT/windows.txt"
+          echo "::endgroup::"
+          for name in simplysign xvfb fluxbox; do
+            echo "::group::$name.log (last 80 lines)"
+            tail -80 "$OUT/$name.log" 2>/dev/null || echo "(not written)"
+            echo "::endgroup::"
+          done
+          ls -la "$OUT"
+          exit 0
+
+      - name: Upload signing diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: signing-diagnostics
+          path: ${{ runner.temp }}/signing-diagnostics
+          retention-days: 1
+          if-no-files-found: ignore
   publish:
     needs: [build, sign]
     runs-on: ubuntu-latest
@@ -304,4 +374,11 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ needs.build.outputs.tag }}" --repo "${{ github.repository }}" --title "${{ needs.build.outputs.version }}" --notes-file release-notes.md
+        # Creates the tag as well, at the commit this run built rather than wherever the
+        # branch has since moved to.
+        run: |
+          gh release create "${{ needs.build.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ needs.build.outputs.version }}" \
+            --notes-file release-notes.md
