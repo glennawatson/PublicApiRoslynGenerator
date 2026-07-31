@@ -54,14 +54,28 @@ jobs:
             *) echo "Pick a bump level (major / minor / patch)." >&2; exit 1 ;;
           esac
           LAST="$(git tag --list '[0-9]*.[0-9]*.[0-9]*' | grep -Ev -- '-' | sort -V | tail -1)"
-          if [ -z "$LAST" ]; then echo "No RTM tag (X.Y.Z) found." >&2; exit 1; fi
-          IFS=. read -r MAJ MIN PAT <<<"$LAST"
-          case "$BUMP" in
-            major) VERSION="$((MAJ+1)).0.0" ;;
-            minor) VERSION="${MAJ}.$((MIN+1)).0" ;;
-            patch) VERSION="${MAJ}.${MIN}.$((PAT+1))" ;;
-          esac
-          echo "Latest RTM tag: $LAST -> next: $VERSION"
+          if [ -z "$LAST" ]; then
+            # First release: there is no tag to increment from, so the bump level has nothing to
+            # act on. The floor the projects already declare to MinVer is that first version --
+            # taking it from there means the tag and the version MinVer stamps cannot disagree,
+            # which they would if a 'minor' or 'patch' bump produced something below the floor.
+            FLOOR="$(sed -n 's:.*<MinVerMinimumMajorMinor>\([0-9.]*\)</MinVerMinimumMajorMinor>.*:\1:p' src/Directory.Build.props | head -1)"
+            FLOOR="${FLOOR:-1.0}"
+            case "$FLOOR" in
+              *.*.*) VERSION="$FLOOR" ;;
+              *.*)   VERSION="${FLOOR}.0" ;;
+              *)     VERSION="${FLOOR}.0.0" ;;
+            esac
+            echo "No release tag yet; starting at the declared floor: $VERSION (bump '$BUMP' has nothing to increment)."
+          else
+            IFS=. read -r MAJ MIN PAT <<<"$LAST"
+            case "$BUMP" in
+              major) VERSION="$((MAJ+1)).0.0" ;;
+              minor) VERSION="${MAJ}.$((MIN+1)).0" ;;
+              patch) VERSION="${MAJ}.${MIN}.$((PAT+1))" ;;
+            esac
+            echo "Latest RTM tag: $LAST -> next: $VERSION"
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
           echo "MINVERVERSIONOVERRIDE=$VERSION" >> "$GITHUB_ENV"
