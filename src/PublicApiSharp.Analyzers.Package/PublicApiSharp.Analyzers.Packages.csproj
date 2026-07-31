@@ -17,19 +17,42 @@
     <!-- Analyzer-only package: no lib/ folder, so the empty dependency group is expected. -->
     <NoWarn>$(NoWarn);NU5128</NoWarn>
 
-    <!-- Roslyn slots shipped under analyzers/dotnet/<slot>/cs. The SDK (>= 6.0.100)
-         loads the highest slot <= the host compiler's Roslyn version. Keep in sync
-         with the slot definitions in Directory.Build.props. -->
-    <RoslynSlots>roslyn4.8;roslyn4.14;roslyn5.3;roslyn5.6</RoslynSlots>
-
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);_AddAnalyzersToOutput</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
 
-  <!-- ProjectReference gives sln build ordering and builds the default (floor) slot;
-       _BuildRoslynSlots builds the remaining slots. -->
+  <!-- Roslyn slots shipped under analyzers/dotnet/<slot>/cs. The SDK (>= 6.0.100) loads
+       the highest slot <= the host compiler's Roslyn version. Keep in sync with the slot
+       definitions in Directory.Build.props.
+
+       The reference list below repeats the slots because AdditionalProperties has to be
+       literal: item metadata cannot be batched outside a target, so the references cannot
+       be generated from the property. Adding a slot means adding both.
+
+       They have to be real references rather than a nested `dotnet build`, so that MSBuild
+       owns the scheduling. The test projects reference the same instances, and only an
+       in-graph reference lets MSBuild recognise the two as one build and run it once; a
+       spawned process is invisible to it and races for the same output files instead.
+
+       ReferenceOutputAssembly is off because this project ships the assemblies as content
+       rather than compiling against them — four builds of one assembly identity could not
+       all be referenced anyway. -->
+  <PropertyGroup>
+    <RoslynSlots>roslyn4.8;roslyn4.14;roslyn5.3;roslyn5.6</RoslynSlots>
+  </PropertyGroup>
+
   <ItemGroup>
-    <ProjectReference Include="..\PublicApiSharp.Analyzers.CodeFixes\PublicApiSharp.Analyzers.CodeFixes.csproj" />
-    <ProjectReference Include="..\PublicApiSharp.Analyzers\PublicApiSharp.Analyzers.csproj" />
+    <ProjectReference Include="..\PublicApiSharp.Analyzers.CodeFixes\PublicApiSharp.Analyzers.CodeFixes.csproj"
+                      AdditionalProperties="RoslynVersion=roslyn4.8"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\PublicApiSharp.Analyzers.CodeFixes\PublicApiSharp.Analyzers.CodeFixes.csproj"
+                      AdditionalProperties="RoslynVersion=roslyn4.14"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\PublicApiSharp.Analyzers.CodeFixes\PublicApiSharp.Analyzers.CodeFixes.csproj"
+                      AdditionalProperties="RoslynVersion=roslyn5.3"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\PublicApiSharp.Analyzers.CodeFixes\PublicApiSharp.Analyzers.CodeFixes.csproj"
+                      AdditionalProperties="RoslynVersion=roslyn5.6"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!-- The consumer-side MSBuild logic: discovers the per-TFM baseline file and adds
@@ -40,20 +63,8 @@
     <None Include="build\PublicApiSharp.Analyzers.targets" Pack="true" PackagePath="build\" />
   </ItemGroup>
 
-  <!-- Build the analyzer + code-fix assemblies once per Roslyn slot so a single
-       pack emits every analyzers/dotnet/<slot>/cs folder. -->
-  <Target Name="_BuildRoslynSlots">
-    <ItemGroup>
-      <_RoslynSlot Include="$(RoslynSlots)" />
-    </ItemGroup>
-    <!-- Build each slot as its own `dotnet build` process so it restores and
-         builds cleanly into its segregated obj/bin (BaseIntermediateOutputPath /
-         BaseOutputPath key off RoslynVersion). Building the code-fix project also
-         builds the analyzer via its ProjectReference. -->
-    <Exec Command="dotnet build &quot;$(MSBuildThisFileDirectory)../PublicApiSharp.Analyzers.CodeFixes/PublicApiSharp.Analyzers.CodeFixes.csproj&quot; --configuration $(Configuration) -p:RoslynVersion=%(_RoslynSlot.Identity)" />
-  </Target>
-
-  <Target Name="_AddAnalyzersToOutput" DependsOnTargets="_BuildRoslynSlots">
+  <!-- Collect the per-slot assemblies the references above have already built. -->
+  <Target Name="_AddAnalyzersToOutput">
     <ItemGroup>
       <_RoslynSlot Include="$(RoslynSlots)" />
       <TfmSpecificPackageFile Include="..\PublicApiSharp.Analyzers\bin\%(_RoslynSlot.Identity)\$(Configuration)\netstandard2.0\PublicApiSharp.Analyzers.dll"

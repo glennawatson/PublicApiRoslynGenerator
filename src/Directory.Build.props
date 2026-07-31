@@ -72,12 +72,23 @@
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(IsRoslynComponentProject)' == 'true'">
-    <RoslynVersion Condition="'$(RoslynVersion)' == ''">roslyn4.8</RoslynVersion>
     <!-- Segregate per-slot output AND intermediates so building several slots in
          one invocation (e.g. during pack) doesn't share obj/ — otherwise one
-         slot's compiled constants leak into another's reference set. -->
-    <BaseOutputPath>bin/$(RoslynVersion)/</BaseOutputPath>
-    <BaseIntermediateOutputPath>obj/$(RoslynVersion)/</BaseIntermediateOutputPath>
+         slot's compiled constants leak into another's reference set.
+
+         The folder keys off the slot as *requested*, before the default below is
+         applied. MSBuild identifies a project by its global properties, so a build
+         with no RoslynVersion is a different node from one with
+         -p:RoslynVersion=roslyn4.8 even though both resolve to the floor. Two nodes
+         are scheduled in parallel, so sharing a folder makes them race for the same
+         output file (CS2012 on Windows, a locked deps.json elsewhere). One folder
+         per node is what keeps that from happening. -->
+    <RoslynSlotOutputName>$(RoslynVersion)</RoslynSlotOutputName>
+    <RoslynSlotOutputName Condition="'$(RoslynSlotOutputName)' == ''">default</RoslynSlotOutputName>
+    <BaseOutputPath>bin/$(RoslynSlotOutputName)/</BaseOutputPath>
+    <BaseIntermediateOutputPath>obj/$(RoslynSlotOutputName)/</BaseIntermediateOutputPath>
+
+    <RoslynVersion Condition="'$(RoslynVersion)' == ''">roslyn4.8</RoslynVersion>
     <!-- The default item globs only exclude the *current* slot's bin/obj; exclude
          every slot's so a build doesn't pull a sibling slot's generated
          AssemblyInfo.cs (CS0579 duplicate attributes). -->
