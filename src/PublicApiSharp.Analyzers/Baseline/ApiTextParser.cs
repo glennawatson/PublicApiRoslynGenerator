@@ -21,7 +21,7 @@ namespace PublicApiSharp.Analyzers;
 /// host Roslyn understands still reads back cleanly.
 /// </para>
 /// </remarks>
-internal static class ApiTextParser
+internal static partial class ApiTextParser
 {
     /// <summary>The options every parse uses.</summary>
     private static readonly CSharpParseOptions ParseOptions =
@@ -106,6 +106,13 @@ internal static class ApiTextParser
         SourceText text,
         CancellationToken cancellationToken)
     {
+        // An extension block is a TypeDeclarationSyntax, so it has to be recognised before the
+        // general type case. Only some slots have the syntax at all; see the tier files.
+        if (TryVisitExtensionBlock(member, container, builder, text, cancellationToken))
+        {
+            return;
+        }
+
         switch (member)
         {
             case BaseNamespaceDeclarationSyntax ns:
@@ -114,17 +121,6 @@ internal static class ApiTextParser
                 break;
             }
 
-#if ROSLYN_5_OR_GREATER
-            case ExtensionBlockDeclarationSyntax ext:
-            {
-                // An extension block has no name; what identifies it is the receiver it extends.
-                var qualified = $"{container}.extension{Parameters(ext.ParameterList)}";
-                Add(builder, text, qualified, HeaderSpan(ext, ext.OpenBraceToken));
-                VisitMembers(ext.Members, qualified, builder, text, cancellationToken);
-                break;
-            }
-
-#endif
             case TypeDeclarationSyntax type:
             {
                 var qualified = Combine(container, type.Identifier.ValueText);

@@ -35,7 +35,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\Shared\Analyzers\*.cs" Link="Helpers\Shared\%(Filename).cs" />
+    <Compile Include="..\Shared\Analyzers\*.cs"
+             Exclude="..\Shared\Analyzers\*.Roslyn48.cs;..\Shared\Analyzers\*.Roslyn414.cs;..\Shared\Analyzers\*.Roslyn53.cs"
+             Link="Helpers\Shared\%(Filename).cs" />
+    <Compile Include="..\Shared\Analyzers\*.$(RoslynSourceTier).cs" Link="Helpers\Shared\%(Filename).cs" />
   </ItemGroup>
 
 </Project>

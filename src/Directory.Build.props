@@ -84,6 +84,31 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)/obj/**;$(MSBuildProjectDirectory)/bin/**</DefaultItemExcludes>
   </PropertyGroup>
 
+  <!--
+    Slot-specific code lives in its own file rather than behind #if, and only the file matching this
+    build's capabilities is compiled. Two things fall out of that. The code reads without
+    conditionals, and — because a variant file appears in exactly one slot's coverage report — a
+    coverage tool merging all four reports sees each file fully covered instead of crediting hits
+    from one slot against lines that only exist in another.
+
+    The tier is named for the lowest slot that has its capabilities, so roslyn5.6 compiles the
+    Roslyn53 files: nothing changed between them.
+  -->
+  <PropertyGroup Condition="'$(IsRoslynComponentProject)' == 'true'">
+    <RoslynSourceTier Condition="'$(RoslynVersion)' == 'roslyn4.8'">Roslyn48</RoslynSourceTier>
+    <RoslynSourceTier Condition="'$(RoslynVersion)' == 'roslyn4.14'">Roslyn414</RoslynSourceTier>
+    <RoslynSourceTier Condition="'$(RoslynSourceTier)' == ''">Roslyn53</RoslynSourceTier>
+
+    <!-- Keep every variant out of the SDK's default glob, which is applied after this file, then
+         add back only the tier this build wants. Removing them in an ItemGroup here would run
+         before the glob and leave the file included twice (NETSDK1022). -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/*.Roslyn48.cs;**/*.Roslyn414.cs;**/*.Roslyn53.cs</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsRoslynComponentProject)' == 'true'">
+    <Compile Include="**/*.$(RoslynSourceTier).cs" Exclude="$(BaseOutputPath)/**;$(BaseIntermediateOutputPath)/**" />
+  </ItemGroup>
+
   <PropertyGroup Condition="'$(IsRoslynComponentProject)' == 'true' And '$(RoslynVersion)' == 'roslyn4.8'">
     <MicrosoftCodeAnalysisVersion>4.8.0</MicrosoftCodeAnalysisVersion>
     <DefineConstants>$(DefineConstants);ROSLYN_4_8_OR_GREATER</DefineConstants>
