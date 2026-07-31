@@ -46,7 +46,7 @@ jobs:
 
             -   name: Build
                 working-directory: src
-                run: dotnet build PublicApiSharp.Analyzers.slnx --no-restore --configuration Release
+                run: dotnet build PublicApiSharp.Analyzers.slnx --configuration Release
 
             -   name: Test
                 working-directory: src
