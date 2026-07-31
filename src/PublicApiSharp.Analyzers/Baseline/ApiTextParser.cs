@@ -56,6 +56,27 @@ internal static partial class ApiTextParser
         return ApiTextParseResult.Parsed(builder.ToImmutable());
     }
 
+    /// <summary>Appends one parameter's contribution to an overload identity.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="parameter">The parameter.</param>
+    internal static void AppendParameterIdentity(PooledStringBuilder builder, ParameterSyntax parameter)
+    {
+        foreach (var modifier in parameter.Modifiers)
+        {
+            if (IsReferenceKind(modifier))
+            {
+                _ = builder.Append(modifier.ValueText).Append(' ');
+            }
+        }
+
+        if (parameter.Type is null)
+        {
+            return;
+        }
+
+        _ = builder.Append(RemoveWhitespace(parameter.Type.ToString()));
+    }
+
     /// <summary>Records every attribute of an assembly-level attribute list.</summary>
     /// <param name="attributeList">The attribute list.</param>
     /// <param name="builder">The declaration builder.</param>
@@ -366,27 +387,6 @@ internal static partial class ApiTextParser
         }
 
         return builder.Append(')').ToString();
-    }
-
-    /// <summary>Appends one parameter's contribution to an overload identity.</summary>
-    /// <param name="builder">The builder.</param>
-    /// <param name="parameter">The parameter.</param>
-    private static void AppendParameterIdentity(PooledStringBuilder builder, ParameterSyntax parameter)
-    {
-        foreach (var modifier in parameter.Modifiers)
-        {
-            if (IsReferenceKind(modifier))
-            {
-                _ = builder.Append(modifier.ValueText).Append(' ');
-            }
-        }
-
-        if (parameter.Type is null)
-        {
-            return;
-        }
-
-        _ = builder.Append(RemoveWhitespace(parameter.Type.ToString()));
     }
 
     /// <summary>Determines whether a parameter modifier changes the overload signature.</summary>

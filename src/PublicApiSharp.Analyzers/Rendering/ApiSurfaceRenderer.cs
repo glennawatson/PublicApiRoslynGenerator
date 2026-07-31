@@ -4,7 +4,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Threading;
 
 namespace PublicApiSharp.Analyzers;
@@ -66,6 +65,84 @@ internal static class ApiSurfaceRenderer
         return writer.Complete();
     }
 
+    /// <summary>Appends a single member's declaration.</summary>
+    /// <param name="builder">The builder the surface is being written into.</param>
+    /// <param name="member">The member.</param>
+    internal static void AppendMember(PooledStringBuilder builder, ISymbol member)
+    {
+        ApiModifiers.AppendMember(builder, member);
+
+        switch (member)
+        {
+            case IFieldSymbol field:
+            {
+                _ = builder.Append(field.Type.ToDisplayString(ApiDisplayFormats.TypeReference))
+                    .Append(' ').Append(ApiLiterals.Identifier(field.Name));
+                if (field.IsConst)
+                {
+                    _ = builder.Append(" = ").Append(ApiLiterals.FormatConstant(field.ConstantValue));
+                }
+
+                _ = builder.Append(';');
+                break;
+            }
+
+            case IPropertySymbol property:
+            {
+                _ = builder.Append(property.Type.ToDisplayString(ApiDisplayFormats.TypeReference)).Append(' ');
+                AppendPropertyName(builder, property);
+                AppendAccessors(builder, property);
+                break;
+            }
+
+            case IEventSymbol evt:
+            {
+                _ = builder.Append("event ").Append(evt.Type.ToDisplayString(ApiDisplayFormats.TypeReference))
+                    .Append(' ').Append(ApiLiterals.Identifier(evt.Name)).Append(';');
+                break;
+            }
+
+            case IMethodSymbol method:
+            {
+                AppendMethod(builder, method);
+                _ = builder.Append(" { }");
+                break;
+            }
+
+            default:
+            {
+                _ = builder.Append(member.ToDisplayString(ApiDisplayFormats.MemberSignature));
+                break;
+            }
+        }
+    }
+
+    /// <summary>Appends a delegate as its single declaration line.</summary>
+    /// <param name="builder">The builder the surface is being written into.</param>
+    /// <param name="type">The delegate type.</param>
+    internal static void AppendDelegate(PooledStringBuilder builder, INamedTypeSymbol type)
+    {
+        // AppendType already ends with the type keyword and a trailing space.
+        ApiModifiers.AppendType(builder, type);
+
+        var invoke = type.DelegateInvokeMethod;
+        if (invoke is null)
+        {
+            _ = builder.Append(type.ToDisplayString(ApiDisplayFormats.TypeDeclarationName)).Append(';');
+            return;
+        }
+
+        _ = builder
+            .Append(invoke.ReturnsVoid ? "void" : invoke.ReturnType.ToDisplayString(ApiDisplayFormats.TypeReference))
+            .Append(' ')
+            .Append(type.ToDisplayString(ApiDisplayFormats.TypeDeclarationName))
+            .Append('(');
+        AppendParameters(builder, invoke.Parameters);
+        _ = builder.Append(')');
+        ApiConstraints.Append(builder, type.TypeParameters);
+        _ = builder.Append(';');
+    }
+
     /// <summary>Appends a type's declaration header: modifiers, name, base list and constraints.</summary>
     /// <param name="builder">The builder the surface is being written into.</param>
     /// <param name="type">The type.</param>
@@ -87,58 +164,6 @@ internal static class ApiSurfaceRenderer
 
         AppendBaseList(builder, type);
         ApiConstraints.Append(builder, type.TypeParameters);
-    }
-
-    /// <summary>Appends a single member's declaration.</summary>
-    /// <param name="builder">The builder the surface is being written into.</param>
-    /// <param name="member">The member.</param>
-    private static void AppendMember(PooledStringBuilder builder, ISymbol member)
-    {
-        ApiModifiers.AppendMember(builder, member);
-
-        switch (member)
-        {
-            case IFieldSymbol field:
-            {
-                _ = builder.Append(field.Type.ToDisplayString(ApiDisplayFormats.TypeReference))
-                    .Append(' ').Append(field.Name);
-                if (field.IsConst)
-                {
-                    _ = builder.Append(" = ").Append(FormatConstant(field.ConstantValue));
-                }
-
-                _ = builder.Append(';');
-                break;
-            }
-
-            case IPropertySymbol property:
-            {
-                _ = builder.Append(property.Type.ToDisplayString(ApiDisplayFormats.TypeReference)).Append(' ');
-                AppendPropertyName(builder, property);
-                AppendAccessors(builder, property);
-                break;
-            }
-
-            case IEventSymbol evt:
-            {
-                _ = builder.Append("event ").Append(evt.Type.ToDisplayString(ApiDisplayFormats.TypeReference))
-                    .Append(' ').Append(evt.Name).Append(';');
-                break;
-            }
-
-            case IMethodSymbol method:
-            {
-                AppendMethod(builder, method);
-                _ = builder.Append(" { }");
-                break;
-            }
-
-            default:
-            {
-                _ = builder.Append(member.ToDisplayString(ApiDisplayFormats.MemberSignature));
-                break;
-            }
-        }
     }
 
     /// <summary>Renders one namespace and the types it declares.</summary>
@@ -168,13 +193,13 @@ internal static class ApiSurfaceRenderer
 
         if (fileScoped)
         {
-            writer.Line(string.Empty, $"namespace {QualifiedName(namespaceSymbol)};", null);
+            writer.Line(string.Empty, $"namespace {DeclaredName(namespaceSymbol)};", null);
             writer.Line(string.Empty, string.Empty, null);
             RenderTypes(writer, types, string.Empty, options, cancellationToken);
             return;
         }
 
-        writer.Line(string.Empty, $"namespace {QualifiedName(namespaceSymbol)}", null);
+        writer.Line(string.Empty, $"namespace {DeclaredName(namespaceSymbol)}", null);
         writer.Line(string.Empty, "{", null);
         RenderTypes(writer, types, Indent, options, cancellationToken);
         writer.Line(string.Empty, "}", null);
@@ -365,7 +390,7 @@ internal static class ApiSurfaceRenderer
             writer.Pending = field;
             ApiAttributeRenderer.Append(writer.Builder, field.GetAttributes(), indent, string.Empty, options, writer.CountLineCallback);
             writer.BeginLine(indent);
-            _ = writer.Builder.Append(field.Name).Append(" = ").Append(FormatConstant(field.ConstantValue)).Append(',');
+            _ = writer.Builder.Append(ApiLiterals.Identifier(field.Name)).Append(" = ").Append(ApiLiterals.FormatConstant(field.ConstantValue)).Append(',');
             writer.EndLine(field);
         }
     }
@@ -495,7 +520,7 @@ internal static class ApiSurfaceRenderer
     {
         if (!property.IsIndexer)
         {
-            _ = builder.Append(property.Name);
+            _ = builder.Append(ApiLiterals.Identifier(property.Name));
             return;
         }
 
@@ -576,7 +601,7 @@ internal static class ApiSurfaceRenderer
         {
             case MethodKind.Constructor or MethodKind.StaticConstructor:
             {
-                _ = builder.Append(method.ContainingType.Name);
+                _ = builder.Append(ApiLiterals.Identifier(method.ContainingType.Name));
                 break;
             }
 
@@ -590,7 +615,7 @@ internal static class ApiSurfaceRenderer
             case MethodKind.UserDefinedOperator:
             {
                 _ = builder.Append(method.ReturnType.ToDisplayString(ApiDisplayFormats.TypeReference))
-                    .Append(" operator ").Append(OperatorToken(method.Name));
+                    .Append(" operator ").Append(ApiLiterals.OperatorToken(method.Name));
                 break;
             }
 
@@ -598,7 +623,7 @@ internal static class ApiSurfaceRenderer
             {
                 _ = builder
                     .Append(method.ReturnsVoid ? "void" : method.ReturnType.ToDisplayString(ApiDisplayFormats.TypeReference))
-                    .Append(' ').Append(method.Name);
+                    .Append(' ').Append(ApiLiterals.Identifier(method.Name));
                 AppendTypeParameters(builder, method);
                 break;
             }
@@ -655,32 +680,6 @@ internal static class ApiSurfaceRenderer
         _ = builder.Append(parameter);
     }
 
-    /// <summary>Appends a delegate as its single declaration line.</summary>
-    /// <param name="builder">The builder the surface is being written into.</param>
-    /// <param name="type">The delegate type.</param>
-    private static void AppendDelegate(PooledStringBuilder builder, INamedTypeSymbol type)
-    {
-        // AppendType already ends with the type keyword and a trailing space.
-        ApiModifiers.AppendType(builder, type);
-
-        var invoke = type.DelegateInvokeMethod;
-        if (invoke is null)
-        {
-            _ = builder.Append(type.ToDisplayString(ApiDisplayFormats.TypeDeclarationName)).Append(';');
-            return;
-        }
-
-        _ = builder
-            .Append(invoke.ReturnsVoid ? "void" : invoke.ReturnType.ToDisplayString(ApiDisplayFormats.TypeReference))
-            .Append(' ')
-            .Append(type.ToDisplayString(ApiDisplayFormats.TypeDeclarationName))
-            .Append('(');
-        AppendParameters(builder, invoke.Parameters);
-        _ = builder.Append(')');
-        ApiConstraints.Append(builder, type.TypeParameters);
-        _ = builder.Append(';');
-    }
-
     /// <summary>Appends a method's type parameter list, if it has one.</summary>
     /// <param name="builder">The builder the surface is being written into.</param>
     /// <param name="method">The method.</param>
@@ -700,61 +699,23 @@ internal static class ApiSurfaceRenderer
                 _ = builder.Append(", ");
             }
 
-            _ = builder.Append(typeParameters[i].Name);
+            _ = builder.Append(ApiLiterals.Identifier(typeParameters[i].Name));
         }
 
         _ = builder.Append('>');
     }
+
+    /// <summary>Gets a namespace's name as its declaration writes it.</summary>
+    /// <param name="namespaceSymbol">The namespace.</param>
+    /// <returns>The name, with any keyword segment escaped.</returns>
+    private static string DeclaredName(INamespaceSymbol namespaceSymbol) =>
+        namespaceSymbol.ToDisplayString(ApiDisplayFormats.NamespaceDeclarationName);
 
     /// <summary>Gets the fully qualified name of a namespace.</summary>
     /// <param name="namespaceSymbol">The namespace.</param>
     /// <returns>The name.</returns>
     private static string QualifiedName(INamespaceSymbol namespaceSymbol) =>
         namespaceSymbol.ToDisplayString(ApiDisplayFormats.QualifiedName);
-
-    /// <summary>Maps an operator's metadata name back to the token it overloads.</summary>
-    /// <param name="metadataName">The metadata name.</param>
-    /// <returns>The operator token.</returns>
-    private static string OperatorToken(string metadataName) => metadataName switch
-    {
-        "op_Addition" or "op_UnaryPlus" => "+",
-        "op_Subtraction" or "op_UnaryNegation" => "-",
-        "op_Multiply" => "*",
-        "op_Division" => "/",
-        "op_Modulus" => "%",
-        "op_BitwiseAnd" => "&",
-        "op_BitwiseOr" => "|",
-        "op_ExclusiveOr" => "^",
-        "op_LeftShift" => "<<",
-        "op_RightShift" => ">>",
-        "op_UnsignedRightShift" => ">>>",
-        "op_Equality" => "==",
-        "op_Inequality" => "!=",
-        "op_LessThan" => "<",
-        "op_GreaterThan" => ">",
-        "op_LessThanOrEqual" => "<=",
-        "op_GreaterThanOrEqual" => ">=",
-        "op_LogicalNot" => "!",
-        "op_OnesComplement" => "~",
-        "op_Increment" => "++",
-        "op_Decrement" => "--",
-        "op_True" => "true",
-        "op_False" => "false",
-        _ => metadataName,
-    };
-
-    /// <summary>Formats a constant value as the C# literal a reader would write.</summary>
-    /// <param name="value">The constant value.</param>
-    /// <returns>The literal.</returns>
-    private static string FormatConstant(object? value) => value switch
-    {
-        null => "null",
-        string text => SymbolDisplay.FormatLiteral(text, quote: true),
-        char character => SymbolDisplay.FormatLiteral(character, quote: true),
-        bool flag => flag ? "true" : "false",
-        IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
-        _ => value.ToString() ?? string.Empty,
-    };
 
     /// <summary>Accumulates the surface text while recording which symbol each line belongs to.</summary>
     private sealed class SurfaceWriter

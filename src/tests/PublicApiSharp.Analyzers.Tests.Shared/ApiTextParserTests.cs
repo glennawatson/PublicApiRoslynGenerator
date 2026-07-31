@@ -2,6 +2,8 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
 namespace PublicApiSharp.Analyzers.Tests;
@@ -321,6 +323,27 @@ public class ApiTextParserTests
                             """;
 
         await Assert.That(Identities(Text)).Contains("Sample.Thing.Go()");
+    }
+
+    /// <summary>Verifies a parameter with no type of its own contributes only its modifiers.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// Every parameter in a declaration carries a type, so a baseline cannot produce one without.
+    /// The guard is what keeps a parameter list the parser did not expect from throwing inside an
+    /// analyzer, where the exception would surface as a broken build rather than a bad baseline.
+    /// </remarks>
+    [Test]
+    public async Task ParameterWithoutATypeContributesOnlyItsModifiersAsync()
+    {
+        var parameter = SyntaxFactory
+            .Parameter(SyntaxFactory.Identifier("value"))
+            .AddModifiers(SyntaxFactory.Token(SyntaxKind.RefKeyword));
+        var builder = new PooledStringBuilder();
+
+        await Assert.That(parameter.Type).IsNull();
+        ApiTextParser.AppendParameterIdentity(builder, parameter);
+
+        await Assert.That(builder.ToString()).IsEqualTo("ref ");
     }
 
     /// <summary>Parses the text and returns every declaration's identity.</summary>

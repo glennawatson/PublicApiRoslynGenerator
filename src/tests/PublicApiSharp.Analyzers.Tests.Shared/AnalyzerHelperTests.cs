@@ -161,6 +161,28 @@ public class AnalyzerHelperTests
         await Assert.That(surface.SymbolAtLine(0)).IsNull();
     }
 
+    /// <summary>Verifies a symbol with nowhere in source to point at reports no location.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// A diagnostic is only raised about a symbol the compilation declares, so this is the floor of
+    /// the walk rather than something a build reaches: a symbol read from metadata has no source of
+    /// its own, and neither does anything containing it.
+    /// </remarks>
+    [Test]
+    public async Task SymbolOutsideTheSourceHasNoLocationAsync()
+    {
+        var compilation = ApiSurfaceTestHost.Compile("namespace Sample { public class Thing { } }");
+        var fromMetadata = compilation.GetTypeByMetadataName("System.String");
+
+        await Assert.That(fromMetadata).IsNotNull();
+        await Assert.That(PublicApiBaselineAnalyzer.SymbolLocation(fromMetadata!)).IsEqualTo(Location.None);
+
+        // A member of it has a container, so the walk recurses before reaching the same floor.
+        var member = fromMetadata!.GetMembers("Length")[0];
+
+        await Assert.That(PublicApiBaselineAnalyzer.SymbolLocation(member)).IsEqualTo(Location.None);
+    }
+
     /// <summary>Builds analyzer config options from the given entries.</summary>
     /// <param name="entries">The key/value pairs.</param>
     /// <returns>The options.</returns>

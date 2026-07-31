@@ -54,9 +54,19 @@ internal sealed class ApiComparisonState
         Compilation compilation,
         ApiTextParseResult baseline,
         ApiRenderOptions options,
+        CancellationToken cancellationToken) =>
+        Create(ApiSurfaceRenderer.Render(compilation, options, cancellationToken), baseline, cancellationToken);
+
+    /// <summary>Builds the comparison from a surface that has already been rendered.</summary>
+    /// <param name="surface">The rendered surface.</param>
+    /// <param name="baseline">The parsed baseline.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    /// <returns>The comparison state, or <see langword="null"/> when the surface cannot be read back.</returns>
+    internal static ApiComparisonState? Create(
+        RenderedApiSurface surface,
+        ApiTextParseResult baseline,
         CancellationToken cancellationToken)
     {
-        var surface = ApiSurfaceRenderer.Render(compilation, options, cancellationToken);
         var surfaceParse = ApiTextParser.Parse(SourceText.From(surface.Text), cancellationToken);
         if (!surfaceParse.Success)
         {

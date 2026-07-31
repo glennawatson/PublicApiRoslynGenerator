@@ -37,6 +37,47 @@ public class PooledStringBuilderTests
         await Assert.That(builder.Length).IsEqualTo(0);
     }
 
+    /// <summary>Verifies appending a prefix copies only the leading characters asked for.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task PrefixAppendCopiesOnlyTheLeadingCharactersAsync()
+    {
+        const int Prefix = 3;
+        var builder = new PooledStringBuilder();
+
+        _ = builder.Append("abcdef", Prefix);
+
+        await Assert.That(builder.ToString()).IsEqualTo("abc");
+    }
+
+    /// <summary>Verifies a prefix longer than the string appends the whole string.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task PrefixAppendClampsToTheStringLengthAsync()
+    {
+        const int MoreThanAvailable = 99;
+        var builder = new PooledStringBuilder();
+
+        _ = builder.Append("ab", MoreThanAvailable);
+
+        await Assert.That(builder.ToString()).IsEqualTo("ab");
+    }
+
+    /// <summary>Verifies a prefix append with nothing to copy changes nothing.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task PrefixAppendWithNothingToCopyIsIgnoredAsync()
+    {
+        const int Some = 4;
+        const int None = 0;
+        const int Negative = -1;
+        var builder = new PooledStringBuilder();
+
+        _ = builder.Append(null, Some).Append(string.Empty, Some).Append("abc", None).Append("abc", Negative);
+
+        await Assert.That(builder.Length).IsEqualTo(0);
+    }
+
     /// <summary>Verifies the character, integer and string overloads all append.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Test]

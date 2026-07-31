@@ -76,6 +76,49 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
         context.RegisterCompilationStartAction(OnCompilationStart);
     }
 
+    /// <summary>Runs the two rules that can only be decided once the whole compilation is known.</summary>
+    /// <param name="context">The compilation context.</param>
+    /// <param name="state">The shared comparison state.</param>
+    /// <param name="baselineFile">The baseline file.</param>
+    /// <param name="baselineText">The baseline file's text.</param>
+    /// <remarks>
+    /// Both rules need the whole comparison, so it is resolved once here. Nothing is reported
+    /// without it, which happens only when this package rendered a surface it could not read back —
+    /// its own defect rather than anything the consumer can act on.
+    /// </remarks>
+    internal static void ReportAtCompilationEnd(
+        in CompilationAnalysisContext context,
+        Lazy<ApiComparisonState?> state,
+        AdditionalText baselineFile,
+        SourceText baselineText)
+    {
+        if (state.Value is not { } comparison)
+        {
+            return;
+        }
+
+        ReportImplicitAdditions(in context, comparison);
+        ReportRemoved(in context, comparison, baselineFile, baselineText);
+    }
+
+    /// <summary>Finds where in the user's source a diagnostic about a symbol should be reported.</summary>
+    /// <param name="symbol">The symbol.</param>
+    /// <returns>The location.</returns>
+    internal static Location SymbolLocation(ISymbol symbol)
+    {
+        foreach (var location in symbol.Locations)
+        {
+            if (location.IsInSource)
+            {
+                return location;
+            }
+        }
+
+        // An implicit constructor has no source location of its own; the type that declares it is
+        // where a reader would go to act on the diagnostic.
+        return symbol.ContainingType is { } containingType ? SymbolLocation(containingType) : Location.None;
+    }
+
     /// <summary>Resolves the baseline once, then wires up the per-symbol and end-of-compilation rules.</summary>
     /// <param name="context">The compilation start context.</param>
     private static void OnCompilationStart(CompilationStartAnalysisContext context)
@@ -116,11 +159,8 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
             () => ApiComparisonState.Create(compilation, baselineParse, options, CancellationToken.None));
 
         context.RegisterSymbolAction(symbolContext => ReportForSymbol(in symbolContext, state), TrackedSymbolKinds);
-        context.RegisterCompilationEndAction(endContext =>
-        {
-            ReportImplicitAdditions(in endContext, state);
-            ReportRemoved(in endContext, state, baselineFile, baselineText);
-        });
+        context.RegisterCompilationEndAction(
+            endContext => ReportAtCompilationEnd(in endContext, state, baselineFile, baselineText));
     }
 
     /// <summary>Reports a symbol that the baseline does not have, or has differently.</summary>
@@ -159,20 +199,15 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
 
     /// <summary>Reports surface entries whose symbol a symbol action can never see.</summary>
     /// <param name="context">The compilation context.</param>
-    /// <param name="state">The shared comparison state.</param>
+    /// <param name="comparison">The resolved comparison.</param>
     /// <remarks>
     /// Roslyn does not raise symbol actions for compiler-supplied symbols, so an implicit
     /// constructor would otherwise be written into the baseline yet never reported when it appears.
     /// It appears whenever a class loses its last explicit constructor, which is a real change to
     /// what a consumer can call, so it has to be caught somewhere — here, at compilation end.
     /// </remarks>
-    private static void ReportImplicitAdditions(in CompilationAnalysisContext context, Lazy<ApiComparisonState?> state)
+    private static void ReportImplicitAdditions(in CompilationAnalysisContext context, ApiComparisonState comparison)
     {
-        if (state.Value is not { } comparison)
-        {
-            return;
-        }
-
         foreach (var pair in comparison.DeclarationsBySymbol)
         {
             context.CancellationToken.ThrowIfCancellationRequested();
@@ -188,20 +223,15 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
 
     /// <summary>Reports baseline declarations the compilation no longer exposes.</summary>
     /// <param name="context">The compilation context.</param>
-    /// <param name="state">The shared comparison state.</param>
+    /// <param name="comparison">The resolved comparison.</param>
     /// <param name="baselineFile">The baseline file.</param>
     /// <param name="baselineText">The baseline text.</param>
     private static void ReportRemoved(
         in CompilationAnalysisContext context,
-        Lazy<ApiComparisonState?> state,
+        ApiComparisonState comparison,
         AdditionalText baselineFile,
         SourceText baselineText)
     {
-        if (state.Value is not { } comparison)
-        {
-            return;
-        }
-
         foreach (var declared in comparison.BaselineByIdentity)
         {
             context.CancellationToken.ThrowIfCancellationRequested();
@@ -286,24 +316,6 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
 
         var separator = path[path.Length - BaselineFileName.Length - 1];
         return separator is '/' or '\\';
-    }
-
-    /// <summary>Finds where in the user's source a diagnostic about a symbol should be reported.</summary>
-    /// <param name="symbol">The symbol.</param>
-    /// <returns>The location.</returns>
-    private static Location SymbolLocation(ISymbol symbol)
-    {
-        foreach (var location in symbol.Locations)
-        {
-            if (location.IsInSource)
-            {
-                return location;
-            }
-        }
-
-        // An implicit constructor has no source location of its own; the type that declares it is
-        // where a reader would go to act on the diagnostic.
-        return symbol.ContainingType is { } containingType ? SymbolLocation(containingType) : Location.None;
     }
 
     /// <summary>Builds a location inside the baseline file.</summary>

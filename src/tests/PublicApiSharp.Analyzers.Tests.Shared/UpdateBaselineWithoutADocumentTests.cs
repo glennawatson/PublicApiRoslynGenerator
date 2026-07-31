@@ -17,6 +17,9 @@ namespace PublicApiSharp.Analyzers.Tests;
 /// </remarks>
 public class UpdateBaselineWithoutADocumentTests
 {
+    /// <summary>A language the host has no compilation service for.</summary>
+    private const string NoCompilationLanguage = "NoCompilation";
+
     /// <summary>Verifies a project with no baseline document is returned unchanged.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Test]
@@ -30,5 +33,43 @@ public class UpdateBaselineWithoutADocumentTests
         var result = await UpdatePublicApiBaselineCodeFixProvider.UpdateBaselineAsync(reloaded, CancellationToken.None);
 
         await Assert.That(result).IsEqualTo(reloaded.Solution);
+    }
+
+    /// <summary>Verifies a project that cannot produce a compilation is returned unchanged.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// The fix is registered for C#, which always compiles, so only a fix-all reaching across into a
+    /// project of another language can land here. There is nothing to render without a compilation,
+    /// so that project keeps whatever baseline it already had.
+    /// </remarks>
+    [Test]
+    public async Task ProjectThatCannotCompileIsLeftAloneAsync()
+    {
+        using var workspace = new AdhocWorkspace();
+
+        var info = ProjectInfo.Create(
+            ProjectId.CreateNewId(),
+            VersionStamp.Default,
+            "NotCompilable",
+            "NotCompilable",
+            NoCompilationLanguage);
+
+        Project project;
+        try
+        {
+            project = workspace.AddProject(info);
+        }
+        catch (NotSupportedException)
+        {
+            // Older workspace hosts refuse a language they hold no services for outright, leaving no
+            // project to put the guard to. It is exercised on the hosts that will model one.
+            return;
+        }
+
+        await Assert.That(project.SupportsCompilation).IsFalse();
+
+        var result = await UpdatePublicApiBaselineCodeFixProvider.UpdateBaselineAsync(project, CancellationToken.None);
+
+        await Assert.That(result).IsEqualTo(project.Solution);
     }
 }

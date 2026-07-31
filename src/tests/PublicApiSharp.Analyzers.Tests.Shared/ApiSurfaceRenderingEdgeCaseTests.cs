@@ -482,6 +482,115 @@ public class ApiSurfaceRenderingEdgeCaseTests
         await Assert.That(parsed.Success).IsTrue();
     }
 
+    /// <summary>Verifies a symbol of a kind the member switch does not name renders by display string.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// Only fields, properties, events and methods survive the member filter, so a compilation cannot
+    /// reach this arm. It is what stops an unfamiliar symbol kind from rendering as nothing at all.
+    /// </remarks>
+    [Test]
+    public async Task MemberOfAnUnnamedKindRendersByDisplayStringAsync()
+    {
+        var compilation = ApiSurfaceTestHost.Compile("namespace Sample { public class Thing { } }");
+        var builder = new PooledStringBuilder();
+
+        ApiSurfaceRenderer.AppendMember(builder, compilation.GlobalNamespace);
+
+        await Assert.That(builder.ToString()).IsNotEmpty();
+    }
+
+    /// <summary>Verifies a delegate with no invoke method renders as its bare name.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// A delegate declared in source always has an invoke method, so only an erroneous symbol lands
+    /// here. Rendering the name keeps the declaration in the surface instead of dropping it.
+    /// </remarks>
+    [Test]
+    public async Task DelegateWithoutAnInvokeMethodRendersItsNameAsync()
+    {
+        var compilation = ApiSurfaceTestHost.Compile("namespace Sample { public class Thing { } }");
+        var thing = compilation.GetTypeByMetadataName("Sample.Thing");
+        var builder = new PooledStringBuilder();
+
+        await Assert.That(thing).IsNotNull();
+        ApiSurfaceRenderer.AppendDelegate(builder, thing!);
+
+        await Assert.That(builder.ToString()).EndsWith("Thing;");
+    }
+
+    /// <summary>Verifies a type named with a keyword renders in a form that reads back.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task KeywordNamedTypeRoundTripsAsync()
+    {
+        const string Source = """
+                              namespace @class;
+
+                              public class @struct
+                              {
+                                  public int @int { get; set; }
+
+                                  public void @for(int @if) { }
+
+                                  public event System.EventHandler? @event;
+
+                                  public const int @null = 1;
+                              }
+
+                              public enum @void
+                              {
+                                  @true,
+                              }
+                              """;
+
+        var rendered = ApiSurfaceTestHost.Render(Source);
+        var parsed = ApiTextParser.Parse(Microsoft.CodeAnalysis.Text.SourceText.From(rendered), CancellationToken.None);
+
+        await Assert.That(parsed.Success).IsTrue();
+    }
+
+    /// <summary>Verifies extension blocks order by the receiver they extend.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// An extension container's own name is compiler-generated, so ordering by it would shuffle the
+    /// baseline whenever the compiler changed how it names one. Two containers in one class are what
+    /// makes the comparison run at all, and therefore what pins the receiver as the sort key.
+    /// </remarks>
+    [Test]
+    public async Task ExtensionBlocksOrderByReceiverAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = """
+                              namespace Sample;
+
+                              public static class Helpers
+                              {
+                                  extension(string text)
+                                  {
+                                      public bool IsLong => text.Length > 10;
+                                  }
+
+                                  extension(int value)
+                                  {
+                                      public bool IsBig => value > 10;
+                                  }
+                              }
+                              """;
+
+        var rendered = ApiSurfaceTestHost.Render(Source);
+
+        var intReceiver = rendered.IndexOf("extension(int value)", StringComparison.Ordinal);
+        var stringReceiver = rendered.IndexOf("extension(string text)", StringComparison.Ordinal);
+
+        await Assert.That(intReceiver).IsGreaterThanOrEqualTo(0);
+        await Assert.That(stringReceiver).IsGreaterThanOrEqualTo(0);
+        await Assert.That(intReceiver).IsLessThan(stringReceiver);
+    }
+
     /// <summary>Verifies a ref-struct permission renders where the host understands it.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>

@@ -98,10 +98,30 @@ internal static class ApiDisplayFormats
         miscellaneousOptions: SymbolDisplayMiscellaneousOptions.None);
 
     /// <summary>
+    /// A namespace's name as its declaration writes it, which is the qualified name with any segment
+    /// that collides with a keyword escaped.
+    /// </summary>
+    /// <remarks>
+    /// Kept apart from <see cref="QualifiedName"/> because that one is matched against the namespace
+    /// patterns a user configures and used to order the surface; escaping belongs only in the text.
+    /// </remarks>
+    internal static readonly SymbolDisplayFormat NamespaceDeclarationName = new(
+        globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
+        typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+        genericsOptions: SymbolDisplayGenericsOptions.None,
+        miscellaneousOptions: SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers);
+
+    /// <summary>
     /// Keyword aliases for the built-in types and nullable annotations on reference types. Both are
     /// how a developer writes the type, so both belong in text meant to read like source.
     /// </summary>
+    /// <remarks>
+    /// Identifiers that collide with a keyword are escaped for the same reason: a type written as
+    /// <c>@class</c> has the plain name <c>class</c>, and a surface saying so is not C# and cannot be
+    /// read back — which would silently stop the baseline being enforced for that assembly.
+    /// </remarks>
     private const SymbolDisplayMiscellaneousOptions Miscellaneous =
         SymbolDisplayMiscellaneousOptions.UseSpecialTypes
-        | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier;
+        | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier
+        | SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers;
 }
