@@ -1,0 +1,19 @@
+<Project>
+
+  <!--
+    Consumer-side defaults. Imported by NuGet near the top of the project, so a
+    consuming .csproj can override any of these in its own body.
+
+    The baseline lives at <PublicApiBaselineDirectory>/<tfm>/<PublicApiBaselineFileName>.
+    The per-TFM folder is the point: a multi-targeting project genuinely has a
+    different public surface per target (conditional compilation, framework-only
+    types, nullable annotations that only exist on newer targets), so one shared
+    baseline can only ever describe one of them.
+  -->
+  <PropertyGroup>
+    <PublicApiBaselineDirectory Condition="'$(PublicApiBaselineDirectory)' == ''">$(MSBuildProjectDirectory)\PublicAPI</PublicApiBaselineDirectory>
+    <PublicApiBaselineFileName Condition="'$(PublicApiBaselineFileName)' == ''">PublicAPI.txt</PublicApiBaselineFileName>
+    <EnablePublicApiBaseline Condition="'$(EnablePublicApiBaseline)' == ''">true</EnablePublicApiBaseline>
+  </PropertyGroup>
+
+</Project>

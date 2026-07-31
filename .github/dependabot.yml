@@ -1,0 +1,68 @@
+# Dependabot version updates.
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Group order matters — Dependabot assigns each package to the first group
+# whose patterns match, so narrower groups (roslyn, analyzers, test-stack)
+# come before the catch-all microsoft group.
+
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    # No Roslyn version ceiling: this package deliberately ships a slot per Roslyn
+    # line (roslyn4.8 / 4.14 / 5.3 / 5.6) and renders the API surface from the
+    # host compiler's symbol model, so a newer Roslyn is a feature — it is what
+    # teaches the renderer each new language construct. Bumps are wanted here.
+    groups:
+      roslyn:
+        # The Roslyn compiler API + the analyzer-testing harness, versioned
+        # together. Microsoft.CodeAnalysis.Analyzers is excluded so it can move
+        # independently with the other source-quality analyzers.
+        patterns:
+          - "Microsoft.CodeAnalysis"
+          - "Microsoft.CodeAnalysis.*"
+        exclude-patterns:
+          - "Microsoft.CodeAnalysis.Analyzers"
+      analyzers:
+        # Build-time source-quality analyzers — track latest.
+        patterns:
+          - "Microsoft.CodeAnalysis.Analyzers"
+          - "*.Analyzers"
+          - "Roslynator.*"
+          - "SonarAnalyzer.*"
+      versioning:
+        patterns:
+          - "MinVer"
+      test-stack:
+        patterns:
+          - "TUnit*"
+          - "NSubstitute"
+          - "Microsoft.Testing.*"
+      microsoft:
+        # Catch-all for the rest of the Microsoft / System out-of-band packages.
+        patterns:
+          - "Microsoft.*"
+          - "System.*"
+        exclude-patterns:
+          - "Microsoft.CodeAnalysis.*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    groups:
+      core-actions:
+        patterns:
+          - "actions/*"
+          - "dotnet/*"
+          - "github/*"
+      release-actions:
+        # Release-only vendor actions land together so signing / publishing
+        # workflow changes stay in one PR.
+        patterns:
+          - "SSLcom/*"
+          - "NuGet/*"

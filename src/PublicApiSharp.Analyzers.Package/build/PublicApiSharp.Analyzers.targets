@@ -1,0 +1,30 @@
+<Project>
+
+  <!--
+    Imported after the consuming project's body, which is the whole reason the
+    baseline wiring lives here rather than in the .props: $(TargetFramework) is
+    only known at this point for a single-targeting project (a multi-targeting
+    inner build gets it as a global property, but a single-TFM project sets it in
+    its body, after the .props import). Resolving the path here means one rule
+    covers both shapes.
+  -->
+  <PropertyGroup Condition="'$(PublicApiBaselineFile)' == '' And '$(TargetFramework)' != ''">
+    <PublicApiBaselineFile>$(PublicApiBaselineDirectory)\$(TargetFramework)\$(PublicApiBaselineFileName)</PublicApiBaselineFile>
+  </PropertyGroup>
+
+  <!-- Outer (multi-targeting) build and any project without a TFM: there is no
+       single surface to describe, so leave the path unset and stay silent. -->
+  <ItemGroup Condition="'$(EnablePublicApiBaseline)' == 'true' And '$(PublicApiBaselineFile)' != '' And Exists('$(PublicApiBaselineFile)')">
+    <AdditionalFiles Include="$(PublicApiBaselineFile)" />
+  </ItemGroup>
+
+  <!--
+    The analyzer needs the resolved path even when the file does not exist yet —
+    that is the case where it reports "no baseline for this target framework" and
+    the code fix creates the file at exactly this path.
+  -->
+  <ItemGroup Condition="'$(EnablePublicApiBaseline)' == 'true'">
+    <CompilerVisibleProperty Include="PublicApiBaselineFile" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,52 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Shared Version Variables">
+    <!-- StyleSharp.Analyzers, PerformanceSharp.Analyzers and SecuritySharp.Analyzers ship from the
+         same release pipeline and always share a version. -->
+    <RoslynCommonAnalyzersVersion>3.40.1</RoslynCommonAnalyzersVersion>
+  </PropertyGroup>
+
+  <ItemGroup Label="Roslyn">
+    <!--
+      Microsoft.CodeAnalysis.Analyzers is the dev-time analyzer (RS* rules) that
+      checks *our* analyzer source — safe to track the latest.
+      Microsoft.CodeAnalysis.CSharp / .Workspaces are the compiler API we build
+      against. Their version is the per-slot $(MicrosoftCodeAnalysisVersion) set in
+      Directory.Build.props (roslyn4.8 / roslyn4.14 / roslyn5.3; 4.14.0 for
+      non-component projects). Pinning them to that property keeps central
+      transitive pinning consistent within each slot.
+    -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.6.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="$(MicrosoftCodeAnalysisVersion)" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="$(MicrosoftCodeAnalysisVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Label="Analyzers">
+    <PackageVersion Include="StyleSharp.Analyzers" Version="$(RoslynCommonAnalyzersVersion)" />
+    <PackageVersion Include="PerformanceSharp.Analyzers" Version="$(RoslynCommonAnalyzersVersion)" />
+    <PackageVersion Include="SecuritySharp.Analyzers" Version="$(RoslynCommonAnalyzersVersion)" />
+    <PackageVersion Include="Roslynator.Analyzers" Version="4.15.0" />
+    <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.30.0.144632" />
+  </ItemGroup>
+
+  <ItemGroup Label="Benchmarks">
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
+  </ItemGroup>
+
+  <ItemGroup Label="Versioning">
+    <PackageVersion Include="MinVer" Version="7.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing">
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" Version="1.1.4" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" Version="1.1.4" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.9.0" />
+    <PackageVersion Include="TUnit" Version="1.59.0" />
+  </ItemGroup>
+
+</Project>

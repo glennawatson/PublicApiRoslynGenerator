@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>PublicApiSharp.Analyzers</RootNamespace>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PublicApiSharp.Analyzers.Benchmarks" />
+    <InternalsVisibleTo Include="PublicApiSharp.Analyzers.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Linq" />
+    <Using Include="System.Collections.Immutable" />
+    <Using Include="System.Composition" />
+    <Using Include="System.Diagnostics.CodeAnalysis" />
+    <Using Include="Microsoft.CodeAnalysis" />
+    <Using Include="Microsoft.CodeAnalysis.CodeActions" />
+    <Using Include="Microsoft.CodeAnalysis.CodeFixes" />
+    <Using Include="Microsoft.CodeAnalysis.Text" />
+    <Using Include="Microsoft.CodeAnalysis.Diagnostics" />
+    <Using Include="PublicApiSharp.Analyzers" />
+    <Using Include="RoslynCommon.Analyzers" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PublicApiSharp.Analyzers\PublicApiSharp.Analyzers.csproj" />
+  </ItemGroup>
+
+</Project>

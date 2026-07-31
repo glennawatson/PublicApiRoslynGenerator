@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>PublicApiSharp.Analyzers.Benchmarks</RootNamespace>
+
+    <!-- Benchmark the newest slot: it renders the most constructs, so it is the slowest path. -->
+    <MicrosoftCodeAnalysisVersion>5.6.0</MicrosoftCodeAnalysisVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\PublicApiSharp.Analyzers\PublicApiSharp.Analyzers.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="PublicApiSharp.Analyzers" />
+  </ItemGroup>
+
+</Project>
