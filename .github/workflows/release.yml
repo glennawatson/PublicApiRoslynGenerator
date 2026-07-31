@@ -72,11 +72,18 @@ jobs:
 
       - name: Restore
         working-directory: src
-        run: dotnet restore PublicApiSharp.Analyzers.slnx
+        run: |
+          # Each Roslyn slot is a separate project instance with its own obj/; restoring the
+          # solution only covers the default slot.
+          dotnet restore PublicApiSharp.Analyzers.slnx
+          for slot in roslyn4.8 roslyn4.14 roslyn5.3 roslyn5.6; do
+            dotnet restore PublicApiSharp.Analyzers/PublicApiSharp.Analyzers.csproj -p:RoslynVersion=$slot
+            dotnet restore PublicApiSharp.Analyzers.CodeFixes/PublicApiSharp.Analyzers.CodeFixes.csproj -p:RoslynVersion=$slot
+          done
 
       - name: Build
         working-directory: src
-        run: dotnet build PublicApiSharp.Analyzers.slnx --configuration Release
+        run: dotnet build PublicApiSharp.Analyzers.slnx --no-restore --configuration Release
 
       - name: Pack
         working-directory: src
