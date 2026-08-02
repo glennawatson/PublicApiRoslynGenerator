@@ -260,7 +260,8 @@ internal static partial class ApiTextParser
 
             case OperatorDeclarationSyntax op:
             {
-                Add(builder, text, $"{container}.op{op.OperatorToken.ValueText}{Parameters(op.ParameterList)}", op.Span);
+                var kind = $"{Checked(op.CheckedKeyword)}{op.OperatorToken.ValueText}";
+                Add(builder, text, $"{container}.op{kind}{Parameters(op.ParameterList)}", op.Span);
                 break;
             }
 
@@ -270,7 +271,7 @@ internal static partial class ApiTextParser
                 // source type, so it belongs in the identity even though a return type normally
                 // does not.
                 var target = RemoveWhitespace(conversion.Type.ToString());
-                var kind = conversion.ImplicitOrExplicitKeyword.ValueText;
+                var kind = $"{conversion.ImplicitOrExplicitKeyword.ValueText}{Checked(conversion.CheckedKeyword)}";
                 Add(builder, text, $"{container}.op{kind}{Parameters(conversion.ParameterList)}->{target}", conversion.Span);
                 break;
             }
@@ -392,6 +393,16 @@ internal static partial class ApiTextParser
 
         return builder.Append(')').ToString();
     }
+
+    /// <summary>Renders an operator's <c>checked</c> keyword as part of its identity.</summary>
+    /// <param name="keyword">The keyword token, absent on the unchecked form.</param>
+    /// <returns><c>checked</c> for the checked form, otherwise an empty string.</returns>
+    /// <remarks>
+    /// The checked and unchecked forms overload the same token over the same parameters, so without
+    /// this they would share one identity and each would be compared against the other's entry.
+    /// </remarks>
+    private static string Checked(SyntaxToken keyword) =>
+        keyword.IsKind(SyntaxKind.CheckedKeyword) ? "checked" : string.Empty;
 
     /// <summary>Determines whether a parameter modifier changes the overload signature.</summary>
     /// <param name="modifier">The modifier token.</param>

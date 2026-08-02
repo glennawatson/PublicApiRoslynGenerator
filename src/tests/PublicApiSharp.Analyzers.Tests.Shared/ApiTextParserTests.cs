@@ -346,6 +346,36 @@ public class ApiTextParserTests
         await Assert.That(builder.ToString()).IsEqualTo("ref ");
     }
 
+    /// <summary>Verifies a checked operator is a different member from its unchecked form.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// The two are declared side by side and a caller reaches one or the other depending on the
+    /// context it writes, so an identity that dropped the keyword would file both under one key.
+    /// </remarks>
+    [Test]
+    public async Task CheckedOperatorsGetDistinctIdentitiesAsync()
+    {
+        const string Text = """
+                            namespace Sample;
+
+                            public class Money
+                            {
+                                public static Sample.Money operator +(Sample.Money a, Sample.Money b) { }
+                                public static Sample.Money operator checked +(Sample.Money a, Sample.Money b) { }
+                                public static explicit operator int(Sample.Money value) { }
+                                public static explicit operator checked int(Sample.Money value) { }
+                            }
+
+                            """;
+
+        var identities = Identities(Text);
+
+        await Assert.That(identities).Contains("Sample.Money.op+(Sample.Money,Sample.Money)");
+        await Assert.That(identities).Contains("Sample.Money.opchecked+(Sample.Money,Sample.Money)");
+        await Assert.That(identities).Contains("Sample.Money.opexplicit(Sample.Money)->int");
+        await Assert.That(identities).Contains("Sample.Money.opexplicitchecked(Sample.Money)->int");
+    }
+
     /// <summary>Verifies a generic type and a non-generic one of the same name do not share members.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>
