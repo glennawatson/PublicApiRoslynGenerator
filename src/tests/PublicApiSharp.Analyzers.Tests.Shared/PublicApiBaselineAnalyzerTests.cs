@@ -257,6 +257,48 @@ public class PublicApiBaselineAnalyzerTests
         await PublicApiVerifier.AnalyzeWithoutBaselineAsync(Source);
     }
 
+    /// <summary>Verifies a member hidden by a generic namesake matches its own baseline entry.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// A generic interface that extends a non-generic one of the same name and re-declares a member
+    /// with a narrower type is a common shape. The two members belong to unrelated types, so each
+    /// has to be matched against the entry for the type that declares it.
+    /// </remarks>
+    [Test]
+    public async Task MemberHiddenByAGenericNamesakeMatchesItsOwnEntryAsync()
+    {
+        const string Source = """
+                              namespace Demo;
+
+                              public interface IViewFor
+                              {
+                                  object? ViewModel { get; set; }
+                              }
+
+                              public interface IViewFor<T> : IViewFor
+                                  where T : class
+                              {
+                                  new T? ViewModel { get; set; }
+                              }
+                              """;
+
+        const string HandWritten = """
+                                   namespace Demo;
+
+                                   public interface IViewFor
+                                   {
+                                       object? ViewModel { get; set; }
+                                   }
+                                   public interface IViewFor<T> : Demo.IViewFor where T : class
+                                   {
+                                       T? ViewModel { get; set; }
+                                   }
+
+                                   """;
+
+        await PublicApiVerifier.AnalyzeAsync(Source, HandWritten);
+    }
+
     /// <summary>Verifies extension blocks separated only by a constraint each match their own entry.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>

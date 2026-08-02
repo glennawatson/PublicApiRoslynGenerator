@@ -144,8 +144,12 @@ internal static partial class ApiTextParser
 
             case TypeDeclarationSyntax type:
             {
-                var qualified = Combine(container, type.Identifier.ValueText);
-                Add(builder, text, TypeIdentity(qualified, Arity(type.TypeParameterList)), HeaderSpan(type, type.OpenBraceToken));
+                // The arity belongs to the container path, not only to the type's own entry: a
+                // generic type and a non-generic one of the same name are unrelated, and so is
+                // everything they declare. Dropping it here would file a member of Thing<T> under
+                // Thing, where a member of Thing with the same name already sits.
+                var qualified = TypeIdentity(Combine(container, type.Identifier.ValueText), Arity(type.TypeParameterList));
+                Add(builder, text, qualified, HeaderSpan(type, type.OpenBraceToken));
                 VisitMembers(type.Members, qualified, builder, text, cancellationToken);
                 break;
             }

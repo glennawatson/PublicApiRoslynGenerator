@@ -346,6 +346,134 @@ public class ApiTextParserTests
         await Assert.That(builder.ToString()).IsEqualTo("ref ");
     }
 
+    /// <summary>Verifies a generic type and a non-generic one of the same name do not share members.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// <c>IViewFor</c> and <c>IViewFor&lt;T&gt;</c> are unrelated types that happen to share a name,
+    /// and the generic one commonly re-declares a member of the other with a narrower type. A
+    /// container path that stopped at the shared name would file both members under one key, so one
+    /// would be matched against the other's baseline entry.
+    /// </remarks>
+    [Test]
+    public async Task GenericAndNonGenericTypesOfOneNameKeepTheirMembersApartAsync()
+    {
+        const string Text = """
+                            namespace Demo;
+
+                            public interface IViewFor
+                            {
+                                object? ViewModel { get; set; }
+                            }
+                            public interface IViewFor<T> : Demo.IViewFor where T : class
+                            {
+                                T? ViewModel { get; set; }
+                            }
+
+                            """;
+
+        var identities = Identities(Text);
+
+        await Assert.That(identities).Contains("Demo.IViewFor.ViewModel");
+        await Assert.That(identities).Contains("Demo.IViewFor`1.ViewModel");
+    }
+
+    /// <summary>Verifies a nested type is qualified by its container's arity as well as its name.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// <c>Box.Item</c> and <c>Box&lt;T&gt;.Item</c> are different types, and so is everything they
+    /// declare, all the way down.
+    /// </remarks>
+    [Test]
+    public async Task NestedDeclarationsCarryTheirContainersArityAsync()
+    {
+        const string Text = """
+                            namespace Demo;
+
+                            public class Box
+                            {
+                                public class Item
+                                {
+                                    public int Value;
+                                }
+                            }
+                            public class Box<T>
+                            {
+                                public class Item
+                                {
+                                    public int Value;
+                                }
+                            }
+
+                            """;
+
+        var identities = Identities(Text);
+
+        await Assert.That(identities).Contains("Demo.Box.Item");
+        await Assert.That(identities).Contains("Demo.Box.Item.Value");
+        await Assert.That(identities).Contains("Demo.Box`1.Item");
+        await Assert.That(identities).Contains("Demo.Box`1.Item.Value");
+    }
+
+    /// <summary>Verifies every kind of declaration inside a generic type is qualified by its arity.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// The container path is built in one place but consumed by every declaration kind, so this
+    /// covers the whole switch at once: a kind that lost the arity would be filed under the
+    /// non-generic namesake and matched against whatever that type declares.
+    /// </remarks>
+    [Test]
+    public async Task EveryDeclarationInsideAGenericTypeIsQualifiedByItsArityAsync()
+    {
+        const string Text = """
+                            namespace Demo;
+
+                            public class Holder<T>
+                            {
+                                public Holder() { }
+                                public const int Limit = 3;
+                                public int Field;
+                                public int Property { get; set; }
+                                public int this[int index] { get; }
+                                public event System.EventHandler Simple;
+                                public void Go(int value) { }
+                                public void Go<TOther>() { }
+                                public static Demo.Holder<T> operator +(Demo.Holder<T> a, Demo.Holder<T> b) { }
+                                public static explicit operator string(Demo.Holder<T> value) { }
+                                int Demo.IThing.Value { get; }
+                                public class Inner
+                                {
+                                }
+                                public enum Colour
+                                {
+                                    Red = 1,
+                                }
+                                public delegate void Handler<TArg>(TArg value);
+                            }
+
+                            """;
+
+        const string Container = "Demo.Holder`1";
+
+        var identities = Identities(Text);
+
+        await Assert.That(identities).Contains(Container);
+        await Assert.That(identities).Contains($"{Container}..ctor()");
+        await Assert.That(identities).Contains($"{Container}.Limit");
+        await Assert.That(identities).Contains($"{Container}.Field");
+        await Assert.That(identities).Contains($"{Container}.Property");
+        await Assert.That(identities).Contains($"{Container}.this(int)");
+        await Assert.That(identities).Contains($"{Container}.Simple");
+        await Assert.That(identities).Contains($"{Container}.Go(int)");
+        await Assert.That(identities).Contains($"{Container}.Go`1()");
+        await Assert.That(identities).Contains($"{Container}.op+(Demo.Holder<T>,Demo.Holder<T>)");
+        await Assert.That(identities).Contains($"{Container}.opexplicit(Demo.Holder<T>)->string");
+        await Assert.That(identities).Contains($"{Container}.Demo.IThing.Value");
+        await Assert.That(identities).Contains($"{Container}.Inner");
+        await Assert.That(identities).Contains($"{Container}.Colour");
+        await Assert.That(identities).Contains($"{Container}.Colour.Red");
+        await Assert.That(identities).Contains($"{Container}.Handler`1");
+    }
+
     /// <summary>Verifies extension blocks over one receiver are told apart by their constraints.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>
