@@ -54,7 +54,7 @@ internal static class ApiSurfaceRenderer
         CollectNamespaces(compilation.Assembly.GlobalNamespace, namespaces, options, cancellationToken);
         namespaces.Sort(static (a, b) => string.CompareOrdinal(QualifiedName(a), QualifiedName(b)));
 
-        var fileScoped = UsesFileScopedNamespace(namespaces);
+        var fileScoped = UsesFileScopedNamespace(namespaces, options);
 
         foreach (var namespaceSymbol in namespaces)
         {
@@ -179,7 +179,7 @@ internal static class ApiSurfaceRenderer
         bool fileScoped,
         CancellationToken cancellationToken)
     {
-        var types = VisibleTypes(namespaceSymbol);
+        var types = VisibleTypes(namespaceSymbol, options);
         if (types.Count == 0)
         {
             return;
@@ -207,6 +207,7 @@ internal static class ApiSurfaceRenderer
 
     /// <summary>Decides whether the surface can use a file-scoped namespace declaration.</summary>
     /// <param name="namespaces">Every namespace the assembly declares, including the global one.</param>
+    /// <param name="options">The render options.</param>
     /// <returns><see langword="true"/> when exactly one namespace holds types and none sit at global scope.</returns>
     /// <remarks>
     /// C# permits one file-scoped namespace per file, and it may not be mixed with a block-scoped one
@@ -215,12 +216,12 @@ internal static class ApiSurfaceRenderer
     /// an assembly that later grows a second namespace reformats its baseline once, which is a real
     /// API change being recorded, not churn.
     /// </remarks>
-    private static bool UsesFileScopedNamespace(List<INamespaceSymbol> namespaces)
+    private static bool UsesFileScopedNamespace(List<INamespaceSymbol> namespaces, ApiRenderOptions options)
     {
         var withTypes = 0;
         foreach (var namespaceSymbol in namespaces)
         {
-            if (VisibleTypes(namespaceSymbol).Count == 0)
+            if (VisibleTypes(namespaceSymbol, options).Count == 0)
             {
                 continue;
             }
@@ -283,14 +284,20 @@ internal static class ApiSurfaceRenderer
 
     /// <summary>Gets the externally visible types a container declares, in a stable order.</summary>
     /// <param name="container">The namespace or type.</param>
+    /// <param name="options">The render options.</param>
     /// <returns>The types.</returns>
-    private static List<INamedTypeSymbol> VisibleTypes(INamespaceOrTypeSymbol container)
+    private static List<INamedTypeSymbol> VisibleTypes(INamespaceOrTypeSymbol container, ApiRenderOptions options)
     {
         var declared = container.GetTypeMembers();
         var types = new List<INamedTypeSymbol>(declared.Length);
         foreach (var member in declared)
         {
             if (!ApiSymbolFilter.IsExternallyVisible(member))
+            {
+                continue;
+            }
+
+            if (!options.IncludeGeneratedCode && ApiSymbolFilter.IsGeneratedCode(member))
             {
                 continue;
             }
@@ -387,6 +394,11 @@ internal static class ApiSurfaceRenderer
                 continue;
             }
 
+            if (!options.IncludeGeneratedCode && ApiSymbolFilter.IsGeneratedCode(field))
+            {
+                continue;
+            }
+
             writer.Pending = field;
             ApiAttributeRenderer.Append(writer.Builder, field.GetAttributes(), indent, string.Empty, options, writer.CountLineCallback);
             writer.BeginLine(indent);
@@ -415,7 +427,8 @@ internal static class ApiSurfaceRenderer
             // Nested types come from GetTypeMembers, after the members.
             if (member is not INamedTypeSymbol
                 && ApiSymbolFilter.IsRenderableMember(member)
-                && ApiSymbolFilter.IsExternallyVisible(member))
+                && ApiSymbolFilter.IsExternallyVisible(member)
+                && (options.IncludeGeneratedCode || !ApiSymbolFilter.IsGeneratedCode(member)))
             {
                 members.Add(member);
             }
@@ -433,7 +446,7 @@ internal static class ApiSurfaceRenderer
             writer.EndLine(member);
         }
 
-        foreach (var nested in VisibleTypes(type))
+        foreach (var nested in VisibleTypes(type, options))
         {
             RenderType(writer, nested, indent, options, cancellationToken);
         }

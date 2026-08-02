@@ -28,23 +28,26 @@ internal sealed class ApiRenderOptions
 
     /// <summary>Initializes a new instance of the <see cref="ApiRenderOptions"/> class.</summary>
     /// <param name="includeAssemblyAttributes">Whether assembly-level attributes are recorded.</param>
+    /// <param name="includeGeneratedCode">Whether declarations a tool marked as its own are recorded.</param>
     /// <param name="excludedAttributes">Patterns matching attributes not to record.</param>
     /// <param name="includedAttributes">Patterns matching attributes to record despite the built-in list.</param>
     /// <param name="excludedNamespacePrefixes">Namespace prefixes not to record.</param>
     private ApiRenderOptions(
         bool includeAssemblyAttributes,
+        bool includeGeneratedCode,
         string[] excludedAttributes,
         string[] includedAttributes,
         string[] excludedNamespacePrefixes)
     {
         IncludeAssemblyAttributes = includeAssemblyAttributes;
+        IncludeGeneratedCode = includeGeneratedCode;
         _excludedAttributes = excludedAttributes;
         _includedAttributes = includedAttributes;
         _excludedNamespacePrefixes = excludedNamespacePrefixes;
     }
 
     /// <summary>Gets the options used when nothing is configured.</summary>
-    internal static ApiRenderOptions Default { get; } = new(true, [], [], []);
+    internal static ApiRenderOptions Default { get; } = new(true, false, [], [], []);
 
     /// <summary>
     /// Gets a value indicating whether assembly-level attributes are recorded. They are part of the
@@ -52,6 +55,16 @@ internal sealed class ApiRenderOptions
     /// consumers can do — so this defaults to on.
     /// </summary>
     internal bool IncludeAssemblyAttributes { get; }
+
+    /// <summary>Gets a value indicating whether declarations a tool marked as its own are recorded.</summary>
+    /// <remarks>
+    /// Off by default. What a build tool writes into an assembly is usually its own plumbing, and it
+    /// appears and disappears with build inputs rather than with the library's API — WPF's XAML
+    /// helper is emitted only while some XAML file references an internal type, so a baseline that
+    /// recorded it would churn for a reason no consumer can see. A project whose generator emits API
+    /// that consumers really do call turns this on.
+    /// </remarks>
+    internal bool IncludeGeneratedCode { get; }
 
     /// <summary>Reads the options for a compilation.</summary>
     /// <param name="options">The analyzer config options for the compilation.</param>
@@ -64,21 +77,13 @@ internal sealed class ApiRenderOptions
     /// why a file's options are consulted as well. A setting of this kind is meant to be written
     /// once for the project rather than varied between files.
     /// </remarks>
-    internal static ApiRenderOptions Read(AnalyzerConfigOptions options, AnalyzerConfigOptions? fileScoped = null)
-    {
-        var includeAssemblyAttributes = true;
-        if (AnalyzerOptionReader.TryRead(options, fileScoped, $"{Prefix}include_assembly_attributes", out var value)
-            && bool.TryParse(value, out var parsed))
-        {
-            includeAssemblyAttributes = parsed;
-        }
-
-        return new(
-            includeAssemblyAttributes,
+    internal static ApiRenderOptions Read(AnalyzerConfigOptions options, AnalyzerConfigOptions? fileScoped = null) =>
+        new(
+            ReadFlag(options, fileScoped, $"{Prefix}include_assembly_attributes", true),
+            ReadFlag(options, fileScoped, $"{Prefix}include_generated_code", false),
             AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}excluded_attributes"),
             AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}included_attributes"),
             AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}excluded_namespace_prefixes"));
-    }
 
     /// <summary>Determines whether configuration excludes an attribute.</summary>
     /// <param name="fullName">The attribute type's fully qualified name.</param>
@@ -111,4 +116,19 @@ internal sealed class ApiRenderOptions
 
         return false;
     }
+
+    /// <summary>Reads a boolean setting, keeping the default when it is absent or unparseable.</summary>
+    /// <param name="options">The options consulted first.</param>
+    /// <param name="fileScoped">The options consulted when the first does not have the key.</param>
+    /// <param name="key">The option key.</param>
+    /// <param name="fallback">The value used when nothing is configured.</param>
+    /// <returns>The setting.</returns>
+    private static bool ReadFlag(
+        AnalyzerConfigOptions options,
+        AnalyzerConfigOptions? fileScoped,
+        string key,
+        bool fallback) =>
+        AnalyzerOptionReader.TryRead(options, fileScoped, key, out var value) && bool.TryParse(value, out var parsed)
+            ? parsed
+            : fallback;
 }

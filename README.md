@@ -135,9 +135,30 @@ takes precedence where both set the same key.
 | Key | Default | Purpose |
 | --- | --- | --- |
 | `publicapisharp.include_assembly_attributes` | `true` | Record assembly-level attributes at all. |
+| `publicapisharp.include_generated_code` | `false` | Record declarations a tool marked as its own output. |
 | `publicapisharp.excluded_attributes` | *(empty)* | Attribute patterns to leave out. |
 | `publicapisharp.included_attributes` | *(empty)* | Attribute patterns to keep despite the built-in list. |
 | `publicapisharp.excluded_namespace_prefixes` | *(empty)* | Namespace prefixes to leave out. |
+
+### Generated declarations
+
+A declaration carrying `[GeneratedCode]` is left out of the surface. What a build tool writes into an
+assembly is usually its own plumbing, and it comes and goes with build inputs rather than with the
+library's API. WPF is the clearest case: `PresentationBuildTasks` emits a public
+`GeneratedInternalTypeHelper` into `XamlGeneratedNamespace`, but only while some XAML file happens to
+reference an internal type — so a baseline that recorded it would churn for a reason no consumer can
+see.
+
+If your library's API is itself generated — a source generator emitting types or members that
+consumers call directly — record it:
+
+```ini
+[*.cs]
+publicapisharp.include_generated_code = true
+```
+
+The marker is the attribute on the declaration, so a generator that adds members to a hand-written
+partial type only removes the members it wrote.
 
 ### Stripping attributes
 

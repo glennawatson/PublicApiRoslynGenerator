@@ -7,6 +7,41 @@ namespace PublicApiSharp.Analyzers;
 /// <summary>Decides what counts as public API surface.</summary>
 internal static class ApiSymbolFilter
 {
+    /// <summary>The attribute a tool stamps on what it wrote.</summary>
+    private const string GeneratedCodeAttribute = "System.CodeDom.Compiler.GeneratedCodeAttribute";
+
+    /// <summary>Determines whether a declaration was written by a tool rather than by hand.</summary>
+    /// <param name="symbol">The declaration.</param>
+    /// <returns><see langword="true"/> when a tool marked it as its own output.</returns>
+    /// <remarks>
+    /// <para>
+    /// Only the declaration's own attributes are read. A tool that emits a whole type marks the
+    /// type, and one that adds to a partial type marks the members it wrote, so asking each
+    /// declaration covers both without inheriting the answer from a container that was written by
+    /// hand.
+    /// </para>
+    /// <para>
+    /// The attribute itself is not rendered — it describes the build rather than the API — but it is
+    /// still on the symbol, which is what makes it usable as the marker here.
+    /// </para>
+    /// </remarks>
+    internal static bool IsGeneratedCode(ISymbol symbol)
+    {
+        foreach (var attribute in symbol.GetAttributes())
+        {
+            if (attribute.AttributeClass is { } attributeClass
+                && string.Equals(
+                    attributeClass.ToDisplayString(ApiDisplayFormats.QualifiedName),
+                    GeneratedCodeAttribute,
+                    System.StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Determines whether a symbol is visible to a consumer of the assembly.</summary>
     /// <remarks>
     /// <c>protected</c> counts: a consumer can derive from a public unsealed type and reach it, so

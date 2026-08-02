@@ -199,6 +199,105 @@ public class ApiRenderOptionsTests
         await Assert.That(rendered).IsEqualTo(Expected.Replace("\r\n", "\n", StringComparison.Ordinal));
     }
 
+    /// <summary>Verifies a type a build tool generated stays out of the surface.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// The shape here is WPF's: a public helper the XAML build task writes into the assembly only
+    /// while some XAML file happens to reference an internal type. It is public, so nothing about
+    /// accessibility keeps it out, and it appears and disappears for reasons that have nothing to do
+    /// with the library's API — which is exactly what a baseline must not record.
+    /// </remarks>
+    [Test]
+    public async Task GeneratedTypeIsNotRenderedAsync()
+    {
+        const string Source = """
+                              namespace XamlGeneratedNamespace
+                              {
+                                  [System.CodeDom.Compiler.GeneratedCode("PresentationBuildTasks", "4.0.0.0")]
+                                  [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+                                  public sealed class GeneratedInternalTypeHelper
+                                  {
+                                      public void Help() { }
+                                  }
+                              }
+
+                              namespace Sample
+                              {
+                                  public class Thing
+                                  {
+                                  }
+                              }
+                              """;
+
+        const string Expected = """
+                                namespace Sample;
+
+                                public class Thing
+                                {
+                                    public Thing() { }
+                                }
+
+                                """;
+
+        var rendered = ApiSurfaceTestHost.Render(Source);
+
+        await Assert.That(rendered).IsEqualTo(Expected.Replace("\r\n", "\n", StringComparison.Ordinal));
+    }
+
+    /// <summary>Verifies a generated member of a hand-written type stays out of the surface.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// A tool that adds to a partial type marks the members it wrote rather than the type, so the
+    /// exclusion has to be decided per declaration and not only at the top.
+    /// </remarks>
+    [Test]
+    public async Task GeneratedMemberIsNotRenderedAsync()
+    {
+        const string Source = """
+                              namespace Sample;
+
+                              public partial class Thing
+                              {
+                                  public int Written { get; set; }
+
+                                  [System.CodeDom.Compiler.GeneratedCode("Tool", "1.0")]
+                                  public int Emitted { get; set; }
+                              }
+                              """;
+
+        var rendered = ApiSurfaceTestHost.Render(Source);
+
+        await Assert.That(rendered).Contains("Written");
+        await Assert.That(rendered).DoesNotContain("Emitted");
+    }
+
+    /// <summary>Verifies a project whose generator emits real API can ask for it back.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// A source generator's output can be API a consumer calls directly, and a library built that
+    /// way needs it tracked. The default suits the far more common case, where what is generated is
+    /// the build's own plumbing.
+    /// </remarks>
+    [Test]
+    public async Task GeneratedCodeCanBeIncludedAsync()
+    {
+        const string Source = """
+                              namespace Sample;
+
+                              [System.CodeDom.Compiler.GeneratedCode("Tool", "1.0")]
+                              public class Generated
+                              {
+                                  public void Go() { }
+                              }
+                              """;
+
+        var options = Read(("publicapisharp.include_generated_code", "true"));
+        var rendered = ApiSurfaceTestHost.Render(Source, options);
+
+        await Assert.That(rendered).Contains("public class Generated");
+        await Assert.That(rendered).Contains("public void Go()");
+    }
+
     /// <summary>Verifies the defaults exclude nothing and keep assembly attributes.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Test]

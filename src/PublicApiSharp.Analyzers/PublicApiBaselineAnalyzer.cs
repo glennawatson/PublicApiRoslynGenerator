@@ -69,8 +69,10 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
     {
         context.EnableConcurrentExecution();
 
-        // A source generator's output is as public as hand-written code, so generated declarations
-        // belong in the baseline and must be analyzed.
+        // Whether a generated declaration belongs in the baseline is decided when the surface is
+        // rendered, by the option that governs it — a source generator can emit API consumers call
+        // directly. Analysis has to reach generated files either way, or turning that option on
+        // would record declarations no symbol action ever visits.
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.Analyze | GeneratedCodeAnalysisFlags.ReportDiagnostics);
 
         context.RegisterCompilationStartAction(OnCompilationStart);
