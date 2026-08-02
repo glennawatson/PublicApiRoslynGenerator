@@ -88,7 +88,16 @@ internal sealed class ApiMemberOrder : IComparer<ISymbol>
             return result;
         }
 
-        return x is IMethodSymbol xMethod && y is IMethodSymbol yMethod ? CompareOverloads(xMethod, yMethod) : 0;
+        if (x is IMethodSymbol xMethod && y is IMethodSymbol yMethod)
+        {
+            return CompareOverloads(xMethod, yMethod);
+        }
+
+        // Every indexer of a type shares the one name, so the name settles nothing between two of
+        // them and their parameters are all that is left to order by.
+        return x is IPropertySymbol xProperty && y is IPropertySymbol yProperty
+            ? CompareParameters(xProperty.Parameters, yProperty.Parameters)
+            : 0;
     }
 
     /// <summary>Orders two members of the same kind and name by their signatures.</summary>
@@ -98,22 +107,34 @@ internal sealed class ApiMemberOrder : IComparer<ISymbol>
     private static int CompareOverloads(IMethodSymbol x, IMethodSymbol y)
     {
         var result = x.Arity.CompareTo(y.Arity);
+        return result != 0 ? result : CompareParameters(x.Parameters, y.Parameters);
+    }
+
+    /// <summary>Orders two parameter lists.</summary>
+    /// <param name="x">The first parameter list.</param>
+    /// <param name="y">The second parameter list.</param>
+    /// <returns>The comparison result.</returns>
+    private static int CompareParameters(ImmutableArray<IParameterSymbol> x, ImmutableArray<IParameterSymbol> y)
+    {
+        var result = x.Length.CompareTo(y.Length);
         if (result != 0)
         {
             return result;
         }
 
-        result = x.Parameters.Length.CompareTo(y.Parameters.Length);
-        if (result != 0)
-        {
-            return result;
-        }
-
-        for (var i = 0; i < x.Parameters.Length; i++)
+        for (var i = 0; i < x.Length; i++)
         {
             result = string.CompareOrdinal(
-                x.Parameters[i].Type.ToDisplayString(ApiDisplayFormats.TypeReference),
-                y.Parameters[i].Type.ToDisplayString(ApiDisplayFormats.TypeReference));
+                x[i].Type.ToDisplayString(ApiDisplayFormats.TypeReference),
+                y[i].Type.ToDisplayString(ApiDisplayFormats.TypeReference));
+            if (result != 0)
+            {
+                return result;
+            }
+
+            // Two overloads may differ only in how a parameter is passed, which its type does not
+            // show. Leaving them tied would let declaration order settle it.
+            result = x[i].RefKind.CompareTo(y[i].RefKind);
             if (result != 0)
             {
                 return result;

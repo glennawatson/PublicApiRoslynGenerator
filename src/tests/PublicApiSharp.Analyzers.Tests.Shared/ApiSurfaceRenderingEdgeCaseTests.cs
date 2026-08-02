@@ -656,6 +656,75 @@ public class ApiSurfaceRenderingEdgeCaseTests
         await Assert.That(parsed.Success).IsTrue();
     }
 
+    /// <summary>Verifies overloaded indexers order the same however they are written.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// Every indexer of a type shares one name, so the name cannot separate two of them and the
+    /// parameters have to. Without that they tie, and a tie is settled by declaration order — making
+    /// a swap in the source read as an API change.
+    /// </remarks>
+    [Test]
+    public async Task IndexerOverloadsOrderIndependentlyOfSourceAsync()
+    {
+        const string IntFirst = """
+                                namespace Sample;
+
+                                public class Bag
+                                {
+                                    public int this[int index] => 0;
+
+                                    public int this[string key] => 0;
+                                }
+                                """;
+
+        const string StringFirst = """
+                                   namespace Sample;
+
+                                   public class Bag
+                                   {
+                                       public int this[string key] => 0;
+
+                                       public int this[int index] => 0;
+                                   }
+                                   """;
+
+        await Assert.That(ApiSurfaceTestHost.Render(IntFirst)).IsEqualTo(ApiSurfaceTestHost.Render(StringFirst));
+    }
+
+    /// <summary>Verifies overloads separated only by a reference kind order the same either way.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// How a parameter is passed does not show in its type, so two such overloads look alike to any
+    /// ordering that compares types alone.
+    /// </remarks>
+    [Test]
+    public async Task ReferenceKindOverloadsOrderIndependentlyOfSourceAsync()
+    {
+        const string ValueFirst = """
+                                  namespace Sample;
+
+                                  public class Runner
+                                  {
+                                      public void Go(int value) { }
+
+                                      public void Go(ref int value) { }
+                                  }
+                                  """;
+
+        const string RefFirst = """
+                                namespace Sample;
+
+                                public class Runner
+                                {
+                                    public void Go(ref int value) { }
+
+                                    public void Go(int value) { }
+                                }
+                                """;
+
+        await Assert.That(ApiSurfaceTestHost.Render(ValueFirst)).IsEqualTo(ApiSurfaceTestHost.Render(RefFirst));
+    }
+
     /// <summary>Verifies a generic extension block declares the type parameters its receiver uses.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>
