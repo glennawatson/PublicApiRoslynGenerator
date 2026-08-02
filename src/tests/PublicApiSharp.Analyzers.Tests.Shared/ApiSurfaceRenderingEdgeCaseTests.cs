@@ -591,6 +591,143 @@ public class ApiSurfaceRenderingEdgeCaseTests
         await Assert.That(intReceiver).IsLessThan(stringReceiver);
     }
 
+    /// <summary>Verifies a generic extension block declares the type parameters its receiver uses.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// The receiver of a generic block names a type parameter, so a header written without the list
+    /// declaring it refers to a name nothing introduces. That is not the surface the assembly has,
+    /// and a compiler reading the baseline back would bind the name to whatever else it can find.
+    /// </remarks>
+    [Test]
+    public async Task GenericExtensionBlockDeclaresItsTypeParametersAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = """
+                              namespace Sample;
+
+                              public interface IBuilder;
+
+                              public static class Helpers
+                              {
+                                  extension<TBuilder>(TBuilder builder)
+                                      where TBuilder : IBuilder
+                                  {
+                                      public TBuilder Configured() => builder;
+                                  }
+                              }
+                              """;
+
+        var rendered = ApiSurfaceTestHost.Render(Source);
+
+        await Assert.That(rendered).Contains("extension<TBuilder>(TBuilder builder) where TBuilder : Sample.IBuilder");
+    }
+
+    /// <summary>Verifies two blocks on one receiver that differ only by a constraint stay apart.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// A constraint decides which callers reach the members inside the block, so two blocks over the
+    /// same receiver under different constraints expose different APIs. Writing them identically
+    /// would leave the surface unable to say which members a caller actually gets.
+    /// </remarks>
+    [Test]
+    public async Task ExtensionBlocksDifferingOnlyByConstraintRenderApartAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = """
+                              namespace Sample;
+
+                              public interface IBuilder;
+
+                              public static class Helpers
+                              {
+                                  extension<TBuilder>(TBuilder builder)
+                                      where TBuilder : IBuilder
+                                  {
+                                      public TBuilder Constrained() => builder;
+                                  }
+
+                                  extension<TBuilder>(TBuilder builder)
+                                  {
+                                      public TBuilder Unconstrained() => builder;
+                                  }
+                              }
+                              """;
+
+        var rendered = ApiSurfaceTestHost.Render(Source);
+
+        await Assert.That(rendered).Contains("extension<TBuilder>(TBuilder builder) where TBuilder : Sample.IBuilder");
+        await Assert.That(rendered).Contains("extension<TBuilder>(TBuilder builder)\n");
+    }
+
+    /// <summary>Verifies the order two same-receiver blocks are written in does not reach the surface.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// Blocks are ordered by the receiver they extend, which ties whenever two of them share one.
+    /// A tie broken by declaration order would make moving a block down a file read as an API change,
+    /// so the constraints that tell the two apart have to take part in the ordering as well.
+    /// </remarks>
+    [Test]
+    public async Task SameReceiverExtensionBlocksOrderIndependentlyOfSourceAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string ConstrainedFirst = """
+                                        namespace Sample;
+
+                                        public interface IBuilder;
+
+                                        public static class Helpers
+                                        {
+                                            extension<TBuilder>(TBuilder builder)
+                                                where TBuilder : IBuilder
+                                            {
+                                                public TBuilder Constrained() => builder;
+                                            }
+
+                                            extension<TBuilder>(TBuilder builder)
+                                            {
+                                                public TBuilder Unconstrained() => builder;
+                                            }
+                                        }
+                                        """;
+
+        const string UnconstrainedFirst = """
+                                          namespace Sample;
+
+                                          public interface IBuilder;
+
+                                          public static class Helpers
+                                          {
+                                              extension<TBuilder>(TBuilder builder)
+                                              {
+                                                  public TBuilder Unconstrained() => builder;
+                                              }
+
+                                              extension<TBuilder>(TBuilder builder)
+                                                  where TBuilder : IBuilder
+                                              {
+                                                  public TBuilder Constrained() => builder;
+                                              }
+                                          }
+                                          """;
+
+        var constrainedFirst = ApiSurfaceTestHost.Render(ConstrainedFirst);
+        var unconstrainedFirst = ApiSurfaceTestHost.Render(UnconstrainedFirst);
+
+        await Assert.That(constrainedFirst).IsEqualTo(unconstrainedFirst);
+    }
+
     /// <summary>Verifies a ref-struct permission renders where the host understands it.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>

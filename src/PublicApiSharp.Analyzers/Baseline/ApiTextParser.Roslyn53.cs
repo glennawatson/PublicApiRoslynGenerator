@@ -31,10 +31,38 @@ internal static partial class ApiTextParser
             return false;
         }
 
-        // An extension block has no name; what identifies it is the receiver it extends.
-        var qualified = $"{container}.extension{Parameters(ext.ParameterList)}";
+        // An extension block has no name, so its whole header is what identifies it. One class may
+        // hold several blocks over the same receiver that differ only in how they constrain it, and
+        // those expose different APIs to different callers: an identity stopping at the receiver
+        // would let one stand for all of them, so a block would be matched against another block's
+        // baseline entry and report a difference that regenerating the file cannot settle.
+        var qualified =
+            $"{container}.extension{ArityMarker(Arity(ext.TypeParameterList))}{Parameters(ext.ParameterList)}{Constraints(ext.ConstraintClauses)}";
         Add(builder, text, qualified, HeaderSpan(ext, ext.OpenBraceToken));
         VisitMembers(ext.Members, qualified, builder, text, cancellationToken);
         return true;
+    }
+
+    /// <summary>Renders constraint clauses as the part of an identity that tells two blocks apart.</summary>
+    /// <param name="clauses">The clauses, in the order they are written.</param>
+    /// <returns>The clauses without whitespace, or an empty string when there are none.</returns>
+    /// <remarks>
+    /// Clauses are ordered by the type parameter they constrain, which the renderer follows, so the
+    /// text is stable for a given block rather than dependent on how one was typed.
+    /// </remarks>
+    private static string Constraints(SyntaxList<TypeParameterConstraintClauseSyntax> clauses)
+    {
+        if (clauses.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new PooledStringBuilder();
+        foreach (var clause in clauses)
+        {
+            _ = builder.Append(RemoveWhitespace(clause.ToString()));
+        }
+
+        return builder.ToString();
     }
 }

@@ -346,6 +346,81 @@ public class ApiTextParserTests
         await Assert.That(builder.ToString()).IsEqualTo("ref ");
     }
 
+    /// <summary>Verifies extension blocks over one receiver are told apart by their constraints.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// A block has no name, so everything identifying it is in its header. Two blocks over the same
+    /// receiver under different constraints are different APIs, and an identity that stopped at the
+    /// receiver would let one of them stand for both — matching the wrong entry in the baseline, and
+    /// reporting a difference that regenerating the file cannot resolve.
+    /// </remarks>
+    [Test]
+    public async Task ExtensionBlocksAreIdentifiedByTheirConstraintsAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Text = """
+                            namespace Sample;
+
+                            public static class Helpers
+                            {
+                                extension<TBuilder>(TBuilder builder) where TBuilder : Sample.IBuilder
+                                {
+                                    public TBuilder Constrained() { }
+                                }
+                                extension<TBuilder>(TBuilder builder)
+                                {
+                                    public TBuilder Unconstrained() { }
+                                }
+                            }
+
+                            """;
+
+        // The class, the two blocks, and the method each block declares.
+        const int ExpectedDeclarations = 5;
+
+        var identities = Identities(Text);
+
+        await Assert.That(identities).Count().IsEqualTo(ExpectedDeclarations);
+        await Assert.That(new HashSet<string>(identities, StringComparer.Ordinal)).Count().IsEqualTo(ExpectedDeclarations);
+    }
+
+    /// <summary>Verifies a block's arity separates it from one that extends the same receiver.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task ExtensionBlockArityIsPartOfTheIdentityAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Text = """
+                            namespace Sample;
+
+                            public static class Helpers
+                            {
+                                extension(Sample.Thing thing)
+                                {
+                                    public int Plain() { }
+                                }
+                                extension<T>(Sample.Thing thing)
+                                {
+                                    public int Generic() { }
+                                }
+                            }
+
+                            """;
+
+        var identities = Identities(Text);
+
+        await Assert.That(identities).Contains("Sample.Helpers.extension(Sample.Thing)");
+        await Assert.That(identities).Contains("Sample.Helpers.extension`1(Sample.Thing)");
+    }
+
     /// <summary>Parses the text and returns every declaration's identity.</summary>
     /// <param name="text">The API surface text.</param>
     /// <returns>The identities.</returns>

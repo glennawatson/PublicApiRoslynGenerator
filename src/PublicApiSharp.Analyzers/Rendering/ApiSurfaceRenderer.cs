@@ -449,17 +449,28 @@ internal static class ApiSurfaceRenderer
             return type.Name;
         }
 
-        // An extension container has no usable name, so it orders by the receiver it extends.
-        var receiver = RoslynFeatures.ExtensionReceiver(type);
-        return receiver is null ? string.Empty : receiver.Type.ToDisplayString(ApiDisplayFormats.TypeReference);
+        // An extension container has no usable name, so it orders by the header that describes it.
+        // The receiver alone is not enough: several blocks can extend one receiver and differ only
+        // in what they constrain it to, and a tie between those would be broken by declaration
+        // order — making a block moved down a file read as an API change.
+        var header = new PooledStringBuilder();
+        AppendExtensionHeader(header, type);
+        return header.ToString();
     }
 
     /// <summary>Appends the header of a C# 14 extension block.</summary>
     /// <param name="builder">The builder the surface is being written into.</param>
     /// <param name="type">The extension container.</param>
+    /// <remarks>
+    /// The type parameter list is written even though a block has no name to attach it to. A generic
+    /// block's receiver is spelled in terms of those parameters, so a header without the list names
+    /// something nothing declares — text C# cannot read back as the surface it was rendered from.
+    /// </remarks>
     private static void AppendExtensionHeader(PooledStringBuilder builder, INamedTypeSymbol type)
     {
-        _ = builder.Append("extension(");
+        _ = builder.Append("extension");
+        AppendTypeParameters(builder, type.TypeParameters);
+        _ = builder.Append('(');
 
         if (RoslynFeatures.ExtensionReceiver(type) is { } receiver)
         {
@@ -624,7 +635,7 @@ internal static class ApiSurfaceRenderer
                 _ = builder
                     .Append(method.ReturnsVoid ? "void" : method.ReturnType.ToDisplayString(ApiDisplayFormats.TypeReference))
                     .Append(' ').Append(ApiLiterals.Identifier(method.Name));
-                AppendTypeParameters(builder, method);
+                AppendTypeParameters(builder, method.TypeParameters);
                 break;
             }
         }
@@ -680,17 +691,20 @@ internal static class ApiSurfaceRenderer
         _ = builder.Append(parameter);
     }
 
-    /// <summary>Appends a method's type parameter list, if it has one.</summary>
+    /// <summary>Appends a type parameter list, if there is one.</summary>
     /// <param name="builder">The builder the surface is being written into.</param>
-    /// <param name="method">The method.</param>
-    private static void AppendTypeParameters(PooledStringBuilder builder, IMethodSymbol method)
+    /// <param name="typeParameters">The type parameters.</param>
+    /// <remarks>
+    /// Only the names are written; the constraints follow the rest of the declaration, which is
+    /// where C# puts them.
+    /// </remarks>
+    private static void AppendTypeParameters(PooledStringBuilder builder, ImmutableArray<ITypeParameterSymbol> typeParameters)
     {
-        if (method.Arity == 0)
+        if (typeParameters.IsEmpty)
         {
             return;
         }
 
-        var typeParameters = method.TypeParameters;
         _ = builder.Append('<');
         for (var i = 0; i < typeParameters.Length; i++)
         {

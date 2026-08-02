@@ -256,4 +256,87 @@ public class PublicApiBaselineAnalyzerTests
 
         await PublicApiVerifier.AnalyzeWithoutBaselineAsync(Source);
     }
+
+    /// <summary>Verifies extension blocks separated only by a constraint each match their own entry.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// <para>
+    /// The baseline here is what this package renders for the source, so silence is the whole
+    /// contract: whatever the surface says about an assembly has to match that assembly. When two
+    /// blocks over one receiver could not be told apart, one of them matched the other's entry and
+    /// reported a difference that accepting into the baseline reproduced on the next build — no
+    /// sequence of regenerating the file ever reached a clean state.
+    /// </para>
+    /// <para>
+    /// Both blocks are generic over the receiver, which is what makes a constraint expressible on
+    /// one and not the other.
+    /// </para>
+    /// </remarks>
+    [Test]
+    public async Task ExtensionBlocksSeparatedByAConstraintMatchTheirOwnBaselineEntryAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = """
+                              namespace Sample;
+
+                              public interface IBuilder;
+
+                              public static class Helpers
+                              {
+                                  extension<TBuilder>(TBuilder builder)
+                                      where TBuilder : IBuilder
+                                  {
+                                      public TBuilder Constrained() => builder;
+                                  }
+
+                                  extension<TBuilder>(TBuilder builder)
+                                  {
+                                      public TBuilder Unconstrained() => builder;
+                                  }
+                              }
+                              """;
+
+        await PublicApiVerifier.AnalyzeAsync(Source, ApiSurfaceTestHost.Render(Source));
+    }
+
+    /// <summary>Verifies a nullable receiver is matched by the constraint that gives it its meaning.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// Both blocks spell the receiver <c>TSender?</c>, but the annotation means a nullable reference
+    /// under the class constraint and a defaulted value otherwise. The receiver text is therefore
+    /// identical while the APIs are not, which is exactly the case a match on the receiver alone
+    /// cannot see.
+    /// </remarks>
+    [Test]
+    public async Task NullableReceiverBlocksAreMatchedByTheirConstraintAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = """
+                              namespace Sample;
+
+                              public static class Mixins
+                              {
+                                  extension<TSender>(TSender? item)
+                                      where TSender : class
+                                  {
+                                      public bool HasSender => item is not null;
+                                  }
+
+                                  extension<TSender>(TSender? item)
+                                  {
+                                      public bool HasValue => item is not null;
+                                  }
+                              }
+                              """;
+
+        await PublicApiVerifier.AnalyzeAsync(Source, ApiSurfaceTestHost.Render(Source));
+    }
 }
