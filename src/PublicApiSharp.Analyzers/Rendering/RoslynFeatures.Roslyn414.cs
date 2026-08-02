@@ -23,6 +23,12 @@ internal static class RoslynFeatures
     /// </summary>
     internal static bool SupportsRefStructConstraints => true;
 
+    /// <summary>
+    /// Gets a value indicating whether this host knows the user-defined compound assignment
+    /// operators, whose metadata names it must map back to a token for one to be rendered.
+    /// </summary>
+    internal static bool SupportsUserDefinedCompoundAssignment => false;
+
     /// <summary>Determines whether a type is a C# 14 extension container rather than a normal nested type.</summary>
     /// <param name="type">The type.</param>
     /// <returns><see langword="true"/> when the type is an extension container.</returns>

@@ -13,6 +13,9 @@ namespace PublicApiSharp.Analyzers;
 /// </remarks>
 internal static class ApiLiterals
 {
+    /// <summary>The prefix the metadata name of a checked operator carries.</summary>
+    private const string CheckedPrefix = "op_Checked";
+
     /// <summary>Writes an identifier the way source must spell it.</summary>
     /// <param name="name">The symbol's plain name.</param>
     /// <returns>The name, escaped when it collides with a keyword.</returns>
@@ -27,33 +30,33 @@ internal static class ApiLiterals
     /// <summary>Maps an operator's metadata name back to the token it overloads.</summary>
     /// <param name="metadataName">The metadata name.</param>
     /// <returns>The operator token.</returns>
-    internal static string OperatorToken(string metadataName) => metadataName switch
+    /// <remarks>
+    /// <para>
+    /// The mapping is the host compiler's own, not a list kept here. That matters twice over: it
+    /// already covers every family the compiler can parse — including the checked and compound
+    /// assignment forms — and it gains whatever C# adds next at the moment the compiler does.
+    /// </para>
+    /// <para>
+    /// A name it does not recognise falls back to itself, which is not C# and would stop the surface
+    /// reading back. Nothing reaches that: an operator can only be in a compilation the host
+    /// compiler parsed, and what it parsed is exactly what its own table describes.
+    /// </para>
+    /// </remarks>
+    internal static string OperatorToken(string metadataName)
     {
-        "op_Addition" or "op_UnaryPlus" => "+",
-        "op_Subtraction" or "op_UnaryNegation" => "-",
-        "op_Multiply" => "*",
-        "op_Division" => "/",
-        "op_Modulus" => "%",
-        "op_BitwiseAnd" => "&",
-        "op_BitwiseOr" => "|",
-        "op_ExclusiveOr" => "^",
-        "op_LeftShift" => "<<",
-        "op_RightShift" => ">>",
-        "op_UnsignedRightShift" => ">>>",
-        "op_Equality" => "==",
-        "op_Inequality" => "!=",
-        "op_LessThan" => "<",
-        "op_GreaterThan" => ">",
-        "op_LessThanOrEqual" => "<=",
-        "op_GreaterThanOrEqual" => ">=",
-        "op_LogicalNot" => "!",
-        "op_OnesComplement" => "~",
-        "op_Increment" => "++",
-        "op_Decrement" => "--",
-        "op_True" => "true",
-        "op_False" => "false",
-        _ => metadataName,
-    };
+        var token = SyntaxFacts.GetText(SyntaxFacts.GetOperatorKind(metadataName));
+        return token.Length == 0 ? metadataName : token;
+    }
+
+    /// <summary>Determines whether an operator's metadata name is that of its checked form.</summary>
+    /// <param name="metadataName">The metadata name.</param>
+    /// <returns><see langword="true"/> for a checked operator.</returns>
+    /// <remarks>
+    /// The checked form is a member of its own that a caller reaches from inside a <c>checked</c>
+    /// context, and the token it overloads is the same one, so only the keyword tells the two apart.
+    /// </remarks>
+    internal static bool IsCheckedOperator(string metadataName) =>
+        metadataName.StartsWith(CheckedPrefix, StringComparison.Ordinal);
 
     /// <summary>Formats a constant value as the C# literal a reader would write.</summary>
     /// <param name="value">The constant value.</param>

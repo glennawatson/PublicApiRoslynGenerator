@@ -591,6 +591,71 @@ public class ApiSurfaceRenderingEdgeCaseTests
         await Assert.That(intReceiver).IsLessThan(stringReceiver);
     }
 
+    /// <summary>Verifies a checked operator renders with the keyword that distinguishes it.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// A checked operator is a separate member from its unchecked form and is what a caller reaches
+    /// inside a <c>checked</c> context. Rendering it without the keyword produces a line identical to
+    /// the other one, and rendering its metadata name produces text that is not C# at all — which
+    /// stops the whole surface reading back and silently ends enforcement for the assembly.
+    /// </remarks>
+    [Test]
+    public async Task CheckedOperatorsRenderWithTheirKeywordAsync()
+    {
+        const string Source = """
+                              namespace Sample;
+
+                              public class Money
+                              {
+                                  public static Money operator +(Money a, Money b) => a;
+
+                                  public static Money operator checked +(Money a, Money b) => a;
+
+                                  public static explicit operator int(Money value) => 0;
+
+                                  public static explicit operator checked int(Money value) => 0;
+                              }
+                              """;
+
+        var rendered = ApiSurfaceTestHost.Render(Source);
+        var parsed = ApiTextParser.Parse(Microsoft.CodeAnalysis.Text.SourceText.From(rendered), CancellationToken.None);
+
+        await Assert.That(rendered).Contains("operator checked +(Sample.Money a, Sample.Money b)");
+        await Assert.That(rendered).Contains("explicit operator checked int(Sample.Money value)");
+        await Assert.That(parsed.Success).IsTrue();
+    }
+
+    /// <summary>Verifies a user-defined compound assignment operator renders as its token.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// The operator token comes from the host compiler's own table, so an operator family C# gains
+    /// later needs no change here. This is the family that arrived most recently, and on a host that
+    /// cannot parse it there is nothing to render.
+    /// </remarks>
+    [Test]
+    public async Task CompoundAssignmentOperatorRendersItsTokenAsync()
+    {
+        if (!RoslynFeatures.SupportsUserDefinedCompoundAssignment)
+        {
+            return;
+        }
+
+        const string Source = """
+                              namespace Sample;
+
+                              public class Counter
+                              {
+                                  public void operator +=(int amount) { }
+                              }
+                              """;
+
+        var rendered = ApiSurfaceTestHost.Render(Source);
+        var parsed = ApiTextParser.Parse(Microsoft.CodeAnalysis.Text.SourceText.From(rendered), CancellationToken.None);
+
+        await Assert.That(rendered).Contains("operator +=(int amount)");
+        await Assert.That(parsed.Success).IsTrue();
+    }
+
     /// <summary>Verifies a generic extension block declares the type parameters its receiver uses.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>

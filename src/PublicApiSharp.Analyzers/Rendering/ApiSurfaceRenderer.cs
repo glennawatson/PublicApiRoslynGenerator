@@ -618,15 +618,18 @@ internal static class ApiSurfaceRenderer
 
             case MethodKind.Conversion:
             {
-                _ = builder.Append(method.Name is "op_Implicit" ? "implicit operator " : "explicit operator ")
-                    .Append(method.ReturnType.ToDisplayString(ApiDisplayFormats.TypeReference));
+                _ = builder.Append(method.Name is "op_Implicit" ? "implicit operator " : "explicit operator ");
+                AppendCheckedKeyword(builder, method);
+                _ = builder.Append(method.ReturnType.ToDisplayString(ApiDisplayFormats.TypeReference));
                 break;
             }
 
             case MethodKind.UserDefinedOperator:
             {
                 _ = builder.Append(method.ReturnType.ToDisplayString(ApiDisplayFormats.TypeReference))
-                    .Append(" operator ").Append(ApiLiterals.OperatorToken(method.Name));
+                    .Append(" operator ");
+                AppendCheckedKeyword(builder, method);
+                _ = builder.Append(ApiLiterals.OperatorToken(method.Name));
                 break;
             }
 
@@ -639,6 +642,20 @@ internal static class ApiSurfaceRenderer
                 break;
             }
         }
+    }
+
+    /// <summary>Appends the <c>checked</c> keyword when the operator is the checked form.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="method">The operator.</param>
+    /// <remarks>C# writes the keyword after <c>operator</c>, before the token or the target type.</remarks>
+    private static void AppendCheckedKeyword(PooledStringBuilder builder, IMethodSymbol method)
+    {
+        if (!ApiLiterals.IsCheckedOperator(method.Name))
+        {
+            return;
+        }
+
+        _ = builder.Append("checked ");
     }
 
     /// <summary>Appends a comma-separated parameter list.</summary>
