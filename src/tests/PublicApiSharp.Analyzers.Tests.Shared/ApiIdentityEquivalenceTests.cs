@@ -159,7 +159,21 @@ public class ApiIdentityEquivalenceTests
             var fromSymbol = ApiIdentity.Of(symbol);
             if (!string.Equals(fromSymbol, declaration.Identity, StringComparison.Ordinal))
             {
-                mismatches.Add($"{symbol.Kind} {symbol.Name}: text='{declaration.Identity}' symbol='{fromSymbol}'");
+                mismatches.Add($"identity {symbol.Kind} {symbol.Name}: text='{declaration.Identity}' symbol='{fromSymbol}'");
+            }
+        }
+
+        // The comparison reports a change by comparing texts, so the two sides have to agree on the
+        // text as exactly as they agree on the key. A declaration whose recorded text carries one
+        // character the parser does not read back differs from its own baseline entry forever.
+        foreach (var recorded in surface.Declarations)
+        {
+            var match = parsed.Declarations.FirstOrDefault(d =>
+                string.Equals(d.Identity, recorded.Identity, StringComparison.Ordinal));
+
+            if (match is not null && !string.Equals(match.Text, recorded.Text, StringComparison.Ordinal))
+            {
+                mismatches.Add($"text {recorded.Identity}: parsed='{match.Text}' recorded='{recorded.Text}'");
             }
         }
 

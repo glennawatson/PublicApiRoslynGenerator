@@ -659,7 +659,12 @@ internal static class ApiSurfaceRenderer
             writer.Pending = field;
             ApiAttributeRenderer.Append(writer.Builder, field.GetAttributes(), indent, string.Empty, options, writer.CountLineCallback);
             writer.BeginLine(indent);
-            _ = writer.Builder.Append(ApiLiterals.Identifier(field.Name)).Append(" = ").Append(ApiLiterals.FormatConstant(field.ConstantValue)).Append(',');
+            _ = writer.Builder.Append(ApiLiterals.Identifier(field.Name)).Append(" = ").Append(ApiLiterals.FormatConstant(field.ConstantValue));
+
+            // The comma separates this member from the next and belongs to the enum, not to the
+            // member, so the declaration ends before it.
+            writer.EndDeclaration();
+            _ = writer.Builder.Append(',');
             writer.EndLine(field);
         }
     }
@@ -823,6 +828,9 @@ internal static class ApiSurfaceRenderer
         /// <summary>The symbol the next emitted line belongs to.</summary>
         private ISymbol? _pending;
 
+        /// <summary>Where in the document the line being written began.</summary>
+        private int _lineStart;
+
         /// <summary>Initializes a new instance of the <see cref="SurfaceWriter"/> class.</summary>
         internal SurfaceWriter() => CountLineCallback = CountLine;
 
@@ -872,6 +880,25 @@ internal static class ApiSurfaceRenderer
             _ = Builder.Append('\n');
             _symbolsByLine.Add(_pending ?? symbol);
             _pending = null;
+            _lineStart = Builder.Length;
+        }
+
+        /// <summary>Closes the open declaration here, before the line it sits on is finished.</summary>
+        /// <remarks>
+        /// An enum member is written with the comma that separates it from the next one, but the
+        /// separator belongs to the enum rather than to the member: the parser reads the member's
+        /// span, which stops before it. Closing the declaration first keeps the recorded text and the
+        /// parsed text the same, which is what the comparison reports a change by.
+        /// </remarks>
+        internal void EndDeclaration()
+        {
+            if (_openSymbol is null)
+            {
+                return;
+            }
+
+            _declarations.Add(new(_openSymbol, null, _openStart, Builder.Length, _openLine));
+            _openSymbol = null;
         }
 
         /// <summary>Writes one indented line.</summary>
@@ -885,14 +912,16 @@ internal static class ApiSurfaceRenderer
             _ = Builder.Append('\n');
             _symbolsByLine.Add(_pending ?? symbol);
             _pending = null;
+            _lineStart = Builder.Length;
         }
 
         /// <summary>Records one assembly-level attribute, which stands alone rather than in a declaration.</summary>
         /// <param name="rendered">The attribute as it was written, without its brackets.</param>
         internal void AssemblyAttribute(string rendered)
         {
-            var start = Builder.Length;
-            _declarations.Add(new(null, rendered, start, start, _symbolsByLine.Count));
+            // The callback fires once the line, terminator included, is already in the buffer, so the
+            // entry spans from where that line began up to but not including the terminator.
+            _declarations.Add(new(null, rendered, _lineStart, Builder.Length - 1, _symbolsByLine.Count));
             CountLine(rendered);
         }
 
@@ -908,6 +937,7 @@ internal static class ApiSurfaceRenderer
             _ = rendered;
             _symbolsByLine.Add(_pending);
             _pending = null;
+            _lineStart = Builder.Length;
         }
 
         /// <summary>Closes the declaration being written, if the line just finished is its own.</summary>

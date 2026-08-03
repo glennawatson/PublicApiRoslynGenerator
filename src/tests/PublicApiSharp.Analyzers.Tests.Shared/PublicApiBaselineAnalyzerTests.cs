@@ -345,6 +345,66 @@ public class PublicApiBaselineAnalyzerTests
         await PublicApiVerifier.AnalyzeAsync(Source, ApiSurfaceTestHost.Render(Source));
     }
 
+    /// <summary>Verifies an enum whose baseline already matches reports nothing.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// An enum member is written with the comma that separates it from the next, but the separator
+    /// belongs to the enum: the parser reads the member's own span, which stops before it. When the
+    /// surface recorded the comma and the baseline did not, every member of every public enum
+    /// differed from an entry that already said the right thing — and the code fix agreed the file
+    /// was correct, so there was no edit that could settle it.
+    /// </remarks>
+    [Test]
+    public async Task EnumMembersMatchTheirOwnBaselineEntryAsync()
+    {
+        const string Source = """
+                              namespace Sample;
+
+                              public enum BindingDirection
+                              {
+                                  OneWay = 0,
+                                  TwoWay = 1,
+                                  AsyncOneWay = 2,
+                              }
+
+                              public enum Severity : byte
+                              {
+                                  Low = 1,
+                                  High = 2,
+                              }
+                              """;
+
+        await PublicApiVerifier.AnalyzeAsync(Source, ApiSurfaceTestHost.Render(Source));
+    }
+
+    /// <summary>Verifies assembly attributes match their own baseline entry.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// An assembly attribute belongs to no symbol, so it is recorded from the line it was written on
+    /// rather than from a declaration being built up. That line is finished by the time it is
+    /// recorded, which is what its span has to account for.
+    /// </remarks>
+    [Test]
+    public async Task AssemblyAttributesMatchTheirOwnBaselineEntryAsync()
+    {
+        const string Source = """
+                              using System;
+                              using System.Runtime.CompilerServices;
+
+                              [assembly: CLSCompliant(false)]
+                              [assembly: InternalsVisibleTo("Sample.Tests")]
+
+                              namespace Sample;
+
+                              public class Thing
+                              {
+                                  public int Value { get; set; }
+                              }
+                              """;
+
+        await PublicApiVerifier.AnalyzeAsync(Source, ApiSurfaceTestHost.Render(Source));
+    }
+
     /// <summary>Verifies a nullable receiver is matched by the constraint that gives it its meaning.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>
