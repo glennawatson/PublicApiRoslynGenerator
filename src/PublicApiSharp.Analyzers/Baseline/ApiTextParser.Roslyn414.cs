@@ -23,7 +23,7 @@ internal static partial class ApiTextParser
     /// <param name="text">The text being parsed.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
     /// <returns>Always <see langword="false"/> on this slot.</returns>
-    private static bool TryVisitExtensionBlock(
+    internal static bool TryVisitExtensionBlock(
         MemberDeclarationSyntax member,
         string container,
         ImmutableArray<ApiDeclaration>.Builder builder,

@@ -19,7 +19,7 @@ internal static partial class ApiTextParser
     /// <param name="text">The text being parsed.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
     /// <returns><see langword="true"/> when the member was an extension block.</returns>
-    private static bool TryVisitExtensionBlock(
+    internal static bool TryVisitExtensionBlock(
         MemberDeclarationSyntax member,
         string container,
         ImmutableArray<ApiDeclaration>.Builder builder,
@@ -50,7 +50,7 @@ internal static partial class ApiTextParser
     /// Clauses are ordered by the type parameter they constrain, which the renderer follows, so the
     /// text is stable for a given block rather than dependent on how one was typed.
     /// </remarks>
-    private static string Constraints(SyntaxList<TypeParameterConstraintClauseSyntax> clauses)
+    internal static string Constraints(SyntaxList<TypeParameterConstraintClauseSyntax> clauses)
     {
         if (clauses.Count == 0)
         {

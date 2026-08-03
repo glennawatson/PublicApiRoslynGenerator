@@ -103,7 +103,7 @@ internal static class ApiModifiers
     /// <summary>Appends the const, static and extern keywords.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="member">The member.</param>
-    private static void AppendStorageModifiers(PooledStringBuilder builder, ISymbol member)
+    internal static void AppendStorageModifiers(PooledStringBuilder builder, ISymbol member)
     {
         // 'const' implies static; writing both would not compile.
         if (member is IFieldSymbol { IsConst: true })
@@ -127,7 +127,7 @@ internal static class ApiModifiers
     /// <param name="builder">The builder.</param>
     /// <param name="member">The member.</param>
     /// <param name="inInterface">Whether the member is declared in an interface.</param>
-    private static void AppendInheritanceModifiers(PooledStringBuilder builder, ISymbol member, bool inInterface)
+    internal static void AppendInheritanceModifiers(PooledStringBuilder builder, ISymbol member, bool inInterface)
     {
         // A non-static interface member is abstract by default, so the keyword is only meaningful
         // on a static one (or on a class member).
@@ -156,7 +156,7 @@ internal static class ApiModifiers
     /// <summary>Appends the readonly and required keywords.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="member">The member.</param>
-    private static void AppendStateModifiers(PooledStringBuilder builder, ISymbol member)
+    internal static void AppendStateModifiers(PooledStringBuilder builder, ISymbol member)
     {
         if (member is IFieldSymbol { IsReadOnly: true, IsConst: false } or IMethodSymbol { IsReadOnly: true })
         {
@@ -174,7 +174,7 @@ internal static class ApiModifiers
     /// <summary>Appends the modifiers that only apply to a class declaration.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="type">The class.</param>
-    private static void AppendClassModifiers(PooledStringBuilder builder, INamedTypeSymbol type)
+    internal static void AppendClassModifiers(PooledStringBuilder builder, INamedTypeSymbol type)
     {
         // A static class is abstract and sealed in metadata; writing all three would not compile.
         if (type.IsStatic)

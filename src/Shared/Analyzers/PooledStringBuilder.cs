@@ -85,6 +85,44 @@ internal sealed class PooledStringBuilder
         return result;
     }
 
+    /// <summary>Rents a buffer of at least the requested length from the thread-local free list, or allocates one.</summary>
+    /// <param name="minimumLength">The minimum buffer length required.</param>
+    /// <returns>A buffer whose length is at least <paramref name="minimumLength"/>.</returns>
+    internal static char[] RentBuffer(int minimumLength)
+    {
+        var pool = _pool;
+        if (pool is not null)
+        {
+            for (var i = _pooledCount - 1; i >= 0; i--)
+            {
+                var candidate = pool[i];
+                if (candidate.Length >= minimumLength)
+                {
+                    pool[i] = pool[_pooledCount - 1];
+                    pool[_pooledCount - 1] = null!;
+                    _pooledCount--;
+                    return candidate;
+                }
+            }
+        }
+
+        return new char[minimumLength];
+    }
+
+    /// <summary>Returns a buffer to the thread-local free list, dropping it when the list is full.</summary>
+    /// <param name="buffer">The rented buffer to return.</param>
+    internal static void ReturnBuffer(char[] buffer)
+    {
+        var pool = _pool ??= new char[MaxPooledPerThread][];
+        if (_pooledCount >= MaxPooledPerThread)
+        {
+            return;
+        }
+
+        pool[_pooledCount] = buffer;
+        _pooledCount++;
+    }
+
     /// <summary>Appends a string.</summary>
     /// <param name="value">The string to append, or null.</param>
     /// <returns>This builder, for chaining.</returns>
@@ -213,43 +251,5 @@ internal sealed class PooledStringBuilder
         var toReturn = _buffer;
         _buffer = next;
         ReturnBuffer(toReturn);
-    }
-
-    /// <summary>Rents a buffer of at least the requested length from the thread-local free list, or allocates one.</summary>
-    /// <param name="minimumLength">The minimum buffer length required.</param>
-    /// <returns>A buffer whose length is at least <paramref name="minimumLength"/>.</returns>
-    private static char[] RentBuffer(int minimumLength)
-    {
-        var pool = _pool;
-        if (pool is not null)
-        {
-            for (var i = _pooledCount - 1; i >= 0; i--)
-            {
-                var candidate = pool[i];
-                if (candidate.Length >= minimumLength)
-                {
-                    pool[i] = pool[_pooledCount - 1];
-                    pool[_pooledCount - 1] = null!;
-                    _pooledCount--;
-                    return candidate;
-                }
-            }
-        }
-
-        return new char[minimumLength];
-    }
-
-    /// <summary>Returns a buffer to the thread-local free list, dropping it when the list is full.</summary>
-    /// <param name="buffer">The rented buffer to return.</param>
-    private static void ReturnBuffer(char[] buffer)
-    {
-        var pool = _pool ??= new char[MaxPooledPerThread][];
-        if (_pooledCount >= MaxPooledPerThread)
-        {
-            return;
-        }
-
-        pool[_pooledCount] = buffer;
-        _pooledCount++;
     }
 }

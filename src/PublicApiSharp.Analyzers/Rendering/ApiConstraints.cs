@@ -30,7 +30,7 @@ internal static class ApiConstraints
     /// <summary>Appends one type parameter's clause, if it has any constraints.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="typeParameter">The type parameter.</param>
-    private static void AppendClause(PooledStringBuilder builder, ITypeParameterSymbol typeParameter)
+    internal static void AppendClause(PooledStringBuilder builder, ITypeParameterSymbol typeParameter)
     {
         var parts = Parts(typeParameter);
         if (parts.Count == 0)
@@ -53,7 +53,7 @@ internal static class ApiConstraints
     /// <summary>Collects a type parameter's constraints in the order C# requires them.</summary>
     /// <param name="typeParameter">The type parameter.</param>
     /// <returns>The constraint texts.</returns>
-    private static List<string> Parts(ITypeParameterSymbol typeParameter)
+    internal static List<string> Parts(ITypeParameterSymbol typeParameter)
     {
         var parts = new List<string>();
 

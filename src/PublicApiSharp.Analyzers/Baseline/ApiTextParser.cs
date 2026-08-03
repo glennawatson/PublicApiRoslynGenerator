@@ -77,50 +77,13 @@ internal static partial class ApiTextParser
         _ = builder.Append(RemoveWhitespace(parameter.Type.ToString()));
     }
 
-    /// <summary>Records every attribute of an assembly-level attribute list.</summary>
-    /// <param name="attributeList">The attribute list.</param>
-    /// <param name="builder">The declaration builder.</param>
-    /// <param name="text">The text being parsed.</param>
-    private static void AddAssemblyAttributes(
-        AttributeListSyntax attributeList,
-        ImmutableArray<ApiDeclaration>.Builder builder,
-        SourceText text)
-    {
-        // An assembly attribute has no identity beyond its whole application: the same attribute
-        // type can legitimately be applied more than once with different arguments.
-        foreach (var attribute in attributeList.Attributes)
-        {
-            Add(builder, text, $"[assembly]{RemoveWhitespace(attribute.ToString())}", attributeList.Span);
-        }
-    }
-
-    /// <summary>Walks a list of member declarations.</summary>
-    /// <param name="members">The members.</param>
-    /// <param name="container">The dotted name of the enclosing namespace and types.</param>
-    /// <param name="builder">The declaration builder.</param>
-    /// <param name="text">The text being parsed.</param>
-    /// <param name="cancellationToken">A cancellation token.</param>
-    private static void VisitMembers(
-        SyntaxList<MemberDeclarationSyntax> members,
-        string container,
-        ImmutableArray<ApiDeclaration>.Builder builder,
-        SourceText text,
-        CancellationToken cancellationToken)
-    {
-        foreach (var member in members)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            VisitMember(member, container, builder, text, cancellationToken);
-        }
-    }
-
     /// <summary>Records one member declaration, recursing into namespaces and types.</summary>
     /// <param name="member">The member.</param>
     /// <param name="container">The dotted name of the enclosing namespace and types.</param>
     /// <param name="builder">The declaration builder.</param>
     /// <param name="text">The text being parsed.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
-    private static void VisitMember(
+    internal static void VisitMember(
         MemberDeclarationSyntax member,
         string container,
         ImmutableArray<ApiDeclaration>.Builder builder,
@@ -178,6 +141,144 @@ internal static partial class ApiTextParser
                 VisitTypeMember(member, container, builder, text);
                 break;
             }
+        }
+    }
+
+    /// <summary>
+    /// The declaration span of a type: everything from its first attribute up to its brace, so a
+    /// type entry describes the type's own header rather than swallowing every member inside it.
+    /// </summary>
+    /// <param name="node">The type declaration.</param>
+    /// <param name="openBrace">The type's opening brace.</param>
+    /// <returns>The header span.</returns>
+    internal static TextSpan HeaderSpan(SyntaxNode node, SyntaxToken openBrace)
+    {
+        var end = openBrace.IsKind(SyntaxKind.None) ? node.Span.End : openBrace.SpanStart;
+        return TextSpan.FromBounds(node.SpanStart, end > node.SpanStart ? end : node.Span.End);
+    }
+
+    /// <summary>
+    /// Renders a parameter list the way overload identity sees it: types and reference kinds, but
+    /// not names or default values. Changing a parameter name or a default keeps the same member
+    /// and is reported as a change to it, not as one member replacing another.
+    /// </summary>
+    /// <param name="parameterList">The parameter list, or <see langword="null"/>.</param>
+    /// <returns>The rendered list, including its parentheses.</returns>
+    internal static string Parameters(BaseParameterListSyntax? parameterList)
+    {
+        if (parameterList is null || parameterList.Parameters.Count == 0)
+        {
+            return "()";
+        }
+
+        var builder = new PooledStringBuilder();
+        _ = builder.Append('(');
+        var first = true;
+
+        foreach (var parameter in parameterList.Parameters)
+        {
+            if (!first)
+            {
+                _ = builder.Append(',');
+            }
+
+            first = false;
+            AppendParameterIdentity(builder, parameter);
+        }
+
+        return builder.Append(')').ToString();
+    }
+
+    /// <summary>
+    /// Strips the indentation a declaration carries because of where it sits in the file, so the
+    /// same member compares equal regardless of nesting depth and reads cleanly in a diagnostic.
+    /// </summary>
+    /// <param name="raw">The raw declaration text.</param>
+    /// <returns>The normalized text.</returns>
+    internal static string NormalizeText(string raw)
+    {
+        var builder = new PooledStringBuilder(raw.Length);
+        var start = 0;
+        var first = true;
+
+        while (start <= raw.Length)
+        {
+            var end = raw.IndexOf('\n', start);
+            var lineEnd = end < 0 ? raw.Length : end;
+            var line = raw.Substring(start, lineEnd - start).Trim();
+
+            if (line.Length > 0)
+            {
+                _ = first ? builder : builder.Append('\n');
+                _ = builder.Append(line);
+                first = false;
+            }
+
+            if (end < 0)
+            {
+                break;
+            }
+
+            start = end + 1;
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>Removes every whitespace character, so spacing cannot affect an identity.</summary>
+    /// <param name="value">The value.</param>
+    /// <returns>The value without whitespace.</returns>
+    internal static string RemoveWhitespace(string value)
+    {
+        var builder = new PooledStringBuilder(value.Length);
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (char.IsWhiteSpace(c))
+            {
+                continue;
+            }
+
+            _ = builder.Append(c);
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>Records every attribute of an assembly-level attribute list.</summary>
+    /// <param name="attributeList">The attribute list.</param>
+    /// <param name="builder">The declaration builder.</param>
+    /// <param name="text">The text being parsed.</param>
+    private static void AddAssemblyAttributes(
+        AttributeListSyntax attributeList,
+        ImmutableArray<ApiDeclaration>.Builder builder,
+        SourceText text)
+    {
+        // An assembly attribute has no identity beyond its whole application: the same attribute
+        // type can legitimately be applied more than once with different arguments.
+        foreach (var attribute in attributeList.Attributes)
+        {
+            Add(builder, text, $"[assembly]{RemoveWhitespace(attribute.ToString())}", attributeList.Span);
+        }
+    }
+
+    /// <summary>Walks a list of member declarations.</summary>
+    /// <param name="members">The members.</param>
+    /// <param name="container">The dotted name of the enclosing namespace and types.</param>
+    /// <param name="builder">The declaration builder.</param>
+    /// <param name="text">The text being parsed.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    private static void VisitMembers(
+        SyntaxList<MemberDeclarationSyntax> members,
+        string container,
+        ImmutableArray<ApiDeclaration>.Builder builder,
+        SourceText text,
+        CancellationToken cancellationToken)
+    {
+        foreach (var member in members)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            VisitMember(member, container, builder, text, cancellationToken);
         }
     }
 
@@ -314,19 +415,6 @@ internal static partial class ApiTextParser
             text.Lines.GetLineFromPosition(span.Start).LineNumber,
             span));
 
-    /// <summary>
-    /// The declaration span of a type: everything from its first attribute up to its brace, so a
-    /// type entry describes the type's own header rather than swallowing every member inside it.
-    /// </summary>
-    /// <param name="node">The type declaration.</param>
-    /// <param name="openBrace">The type's opening brace.</param>
-    /// <returns>The header span.</returns>
-    private static TextSpan HeaderSpan(SyntaxNode node, SyntaxToken openBrace)
-    {
-        var end = openBrace.IsKind(SyntaxKind.None) ? node.Span.End : openBrace.SpanStart;
-        return TextSpan.FromBounds(node.SpanStart, end > node.SpanStart ? end : node.Span.End);
-    }
-
     /// <summary>Builds the identity of a type.</summary>
     /// <param name="qualifiedName">The type's dotted name.</param>
     /// <param name="arity">The type's generic arity.</param>
@@ -362,38 +450,6 @@ internal static partial class ApiTextParser
             ? identifier.ValueText
             : $"{RemoveWhitespace(explicitInterface.ToString())}{identifier.ValueText}";
 
-    /// <summary>
-    /// Renders a parameter list the way overload identity sees it: types and reference kinds, but
-    /// not names or default values. Changing a parameter name or a default keeps the same member
-    /// and is reported as a change to it, not as one member replacing another.
-    /// </summary>
-    /// <param name="parameterList">The parameter list, or <see langword="null"/>.</param>
-    /// <returns>The rendered list, including its parentheses.</returns>
-    private static string Parameters(BaseParameterListSyntax? parameterList)
-    {
-        if (parameterList is null || parameterList.Parameters.Count == 0)
-        {
-            return "()";
-        }
-
-        var builder = new PooledStringBuilder();
-        _ = builder.Append('(');
-        var first = true;
-
-        foreach (var parameter in parameterList.Parameters)
-        {
-            if (!first)
-            {
-                _ = builder.Append(',');
-            }
-
-            first = false;
-            AppendParameterIdentity(builder, parameter);
-        }
-
-        return builder.Append(')').ToString();
-    }
-
     /// <summary>Renders an operator's <c>checked</c> keyword as part of its identity.</summary>
     /// <param name="keyword">The keyword token, absent on the unchecked form.</param>
     /// <returns><c>checked</c> for the checked form, otherwise an empty string.</returns>
@@ -412,60 +468,4 @@ internal static partial class ApiTextParser
             || modifier.IsKind(SyntaxKind.OutKeyword)
             || modifier.IsKind(SyntaxKind.InKeyword)
             || modifier.IsKind(SyntaxKind.ReadOnlyKeyword);
-
-    /// <summary>
-    /// Strips the indentation a declaration carries because of where it sits in the file, so the
-    /// same member compares equal regardless of nesting depth and reads cleanly in a diagnostic.
-    /// </summary>
-    /// <param name="raw">The raw declaration text.</param>
-    /// <returns>The normalized text.</returns>
-    private static string NormalizeText(string raw)
-    {
-        var builder = new PooledStringBuilder(raw.Length);
-        var start = 0;
-        var first = true;
-
-        while (start <= raw.Length)
-        {
-            var end = raw.IndexOf('\n', start);
-            var lineEnd = end < 0 ? raw.Length : end;
-            var line = raw.Substring(start, lineEnd - start).Trim();
-
-            if (line.Length > 0)
-            {
-                _ = first ? builder : builder.Append('\n');
-                _ = builder.Append(line);
-                first = false;
-            }
-
-            if (end < 0)
-            {
-                break;
-            }
-
-            start = end + 1;
-        }
-
-        return builder.ToString();
-    }
-
-    /// <summary>Removes every whitespace character, so spacing cannot affect an identity.</summary>
-    /// <param name="value">The value.</param>
-    /// <returns>The value without whitespace.</returns>
-    private static string RemoveWhitespace(string value)
-    {
-        var builder = new PooledStringBuilder(value.Length);
-        for (var i = 0; i < value.Length; i++)
-        {
-            var c = value[i];
-            if (char.IsWhiteSpace(c))
-            {
-                continue;
-            }
-
-            _ = builder.Append(c);
-        }
-
-        return builder.ToString();
-    }
 }

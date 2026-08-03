@@ -68,7 +68,7 @@ internal sealed class ApiMemberOrder : IComparer<ISymbol>
     /// <param name="x">The first member.</param>
     /// <param name="y">The second member.</param>
     /// <returns>The comparison result.</returns>
-    private static int CompareNonNull(ISymbol x, ISymbol y)
+    internal static int CompareNonNull(ISymbol x, ISymbol y)
     {
         var result = GroupRank(x).CompareTo(GroupRank(y));
         if (result != 0)
@@ -104,7 +104,7 @@ internal sealed class ApiMemberOrder : IComparer<ISymbol>
     /// <param name="x">The first method.</param>
     /// <param name="y">The second method.</param>
     /// <returns>The comparison result.</returns>
-    private static int CompareOverloads(IMethodSymbol x, IMethodSymbol y)
+    internal static int CompareOverloads(IMethodSymbol x, IMethodSymbol y)
     {
         var result = x.Arity.CompareTo(y.Arity);
         return result != 0 ? result : CompareParameters(x.Parameters, y.Parameters);
@@ -114,7 +114,7 @@ internal sealed class ApiMemberOrder : IComparer<ISymbol>
     /// <param name="x">The first parameter list.</param>
     /// <param name="y">The second parameter list.</param>
     /// <returns>The comparison result.</returns>
-    private static int CompareParameters(ImmutableArray<IParameterSymbol> x, ImmutableArray<IParameterSymbol> y)
+    internal static int CompareParameters(ImmutableArray<IParameterSymbol> x, ImmutableArray<IParameterSymbol> y)
     {
         var result = x.Length.CompareTo(y.Length);
         if (result != 0)

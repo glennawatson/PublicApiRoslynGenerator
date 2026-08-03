@@ -79,7 +79,7 @@ public sealed class UpdatePublicApiBaselineCodeFixProvider : CodeFixProvider
     /// <summary>Finds the baseline among the project's additional documents.</summary>
     /// <param name="project">The project.</param>
     /// <returns>The baseline document, or <see langword="null"/>.</returns>
-    private static TextDocument? FindBaselineDocument(Project project)
+    internal static TextDocument? FindBaselineDocument(Project project)
     {
         foreach (var document in project.AdditionalDocuments)
         {
