@@ -7,6 +7,8 @@ using System.Text;
 
 using BenchmarkDotNet.Attributes;
 
+using BenchmarkDotNet.Diagnosers;
+
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
@@ -19,7 +21,8 @@ namespace PublicApiSharp.Analyzers.Benchmarks;
 /// public surface, so a large library is where any regression shows up. The type count is a
 /// parameter so a change can be judged on how it scales rather than on one data point.
 /// </remarks>
-[Config(typeof(AllocationProfilingConfig))]
+[ShortRunJob]
+[EventPipeProfiler(EventPipeProfile.GcVerbose)]
 public class ApiSurfaceBenchmarks
 {
     /// <summary>The compilation whose surface is rendered.</summary>
@@ -29,7 +32,7 @@ public class ApiSurfaceBenchmarks
     private SourceText _rendered = null!;
 
     /// <summary>Gets or sets the number of public types the benchmarked assembly declares.</summary>
-    [Params(10, 100)]
+    [Params(BenchmarkParameterValues.SmallTypeCount, BenchmarkParameterValues.LargeTypeCount)]
     public int TypeCount { get; set; }
 
     /// <summary>Builds the compilation and its rendered surface once per parameter set.</summary>
