@@ -76,14 +76,18 @@ internal static class ApiAttributeRenderer
     /// <param name="indent">The indentation each line starts with.</param>
     /// <param name="target">The attribute target prefix, for example an assembly target, or an empty string.</param>
     /// <param name="options">The render options.</param>
-    /// <param name="lineCallback">Invoked for every line appended, so the caller can track line numbers.</param>
+    /// <param name="lineCallback">
+    /// Invoked for every line appended, with the attribute as rendered, so the caller can track line
+    /// numbers and — for an assembly attribute, which stands alone rather than belonging to a
+    /// declaration — key it.
+    /// </param>
     internal static void Append(
         PooledStringBuilder builder,
         ImmutableArray<AttributeData> attributes,
         string indent,
         string target,
         ApiRenderOptions options,
-        Action lineCallback)
+        Action<string> lineCallback)
     {
         if (attributes.IsEmpty)
         {
@@ -106,7 +110,7 @@ internal static class ApiAttributeRenderer
         foreach (var text in rendered)
         {
             _ = builder.Append(indent).Append('[').Append(target).Append(text).Append(']').Append('\n');
-            lineCallback();
+            lineCallback(text);
         }
     }
 
@@ -176,7 +180,7 @@ internal static class ApiAttributeRenderer
     /// <param name="builder">The builder.</param>
     /// <param name="attribute">The attribute.</param>
     /// <param name="first">Whether no argument has been written yet.</param>
-    private static void AppendNamedArguments(PooledStringBuilder builder, AttributeData attribute, bool first)
+    internal static void AppendNamedArguments(PooledStringBuilder builder, AttributeData attribute, bool first)
     {
         // Named arguments are unordered in source; sort so the baseline is stable.
         var named = new List<string>(attribute.NamedArguments.Length);

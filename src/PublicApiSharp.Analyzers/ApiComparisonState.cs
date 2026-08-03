@@ -49,8 +49,8 @@ internal sealed class ApiComparisonState
     /// <param name="baseline">The parsed baseline.</param>
     /// <param name="options">The render options.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
-    /// <returns>The comparison state, or <see langword="null"/> when the rendering cannot be read back.</returns>
-    internal static ApiComparisonState? Create(
+    /// <returns>The comparison state.</returns>
+    internal static ApiComparisonState Create(
         Compilation compilation,
         ApiTextParseResult baseline,
         ApiRenderOptions options,
@@ -61,22 +61,23 @@ internal sealed class ApiComparisonState
     /// <param name="surface">The rendered surface.</param>
     /// <param name="baseline">The parsed baseline.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
-    /// <returns>The comparison state, or <see langword="null"/> when the surface cannot be read back.</returns>
-    internal static ApiComparisonState? Create(
+    /// <returns>The comparison state.</returns>
+    /// <remarks>
+    /// The surface arrives already stating its declarations, so there is nothing here that can fail.
+    /// It used to be parsed back out of its own text, and a surface this package had rendered badly
+    /// enough to be unreadable abandoned the comparison rather than blaming the consumer for it.
+    /// What guards that now is <c>RenderedSurfaceParsesBackAsync</c>, which holds the renderer to
+    /// output C# can read, and the baseline's own parse, which reports PAS0005 if one ever escaped.
+    /// </remarks>
+    internal static ApiComparisonState Create(
         RenderedApiSurface surface,
         ApiTextParseResult baseline,
         CancellationToken cancellationToken)
     {
-        var surfaceParse = ApiTextParser.Parse(SourceText.From(surface.Text), cancellationToken);
-        if (!surfaceParse.Success)
-        {
-            // The renderer produced text it cannot read back. That is a defect in this package
-            // rather than anything the user can act on, so the caller stays silent.
-            return null;
-        }
+        cancellationToken.ThrowIfCancellationRequested();
 
         var declarationsBySymbol = new Dictionary<ISymbol, ApiDeclaration>(SymbolEqualityComparer.Default);
-        foreach (var declaration in surfaceParse.Declarations)
+        foreach (var declaration in surface.Declarations)
         {
             if (surface.SymbolAtLine(declaration.StartLine) is { } symbol)
             {
@@ -86,14 +87,14 @@ internal sealed class ApiComparisonState
 
         return new(
             Index(baseline.Declarations),
-            Index(surfaceParse.Declarations),
+            Index(surface.Declarations),
             declarationsBySymbol);
     }
 
     /// <summary>Indexes declarations by identity.</summary>
     /// <param name="declarations">The declarations.</param>
     /// <returns>The lookup.</returns>
-    private static Dictionary<string, ApiDeclaration> Index(ImmutableArray<ApiDeclaration> declarations)
+    internal static Dictionary<string, ApiDeclaration> Index(ImmutableArray<ApiDeclaration> declarations)
     {
         var map = new Dictionary<string, ApiDeclaration>(declarations.Length, System.StringComparer.Ordinal);
         foreach (var declaration in declarations)

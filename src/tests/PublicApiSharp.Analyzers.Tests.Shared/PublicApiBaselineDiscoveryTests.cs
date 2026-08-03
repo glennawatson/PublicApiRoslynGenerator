@@ -176,59 +176,6 @@ public class PublicApiBaselineDiscoveryTests
         await Assert.That(diagnostics).IsEmpty();
     }
 
-    /// <summary>Verifies nothing is reported when the surface could not be read back.</summary>
-    /// <returns>A task that represents the asynchronous test operation.</returns>
-    /// <remarks>
-    /// The comparison comes back empty-handed only when this package rendered text it cannot parse,
-    /// which is its own defect rather than the consumer's. Reporting from a half-read surface would
-    /// blame them for it, so both end-of-compilation rules stay silent.
-    /// </remarks>
-    [Test]
-    public async Task NothingIsReportedWithoutAComparisonAsync()
-    {
-        var compilation = ApiSurfaceTestHost.Compile(MatchingSource);
-        var baseline = new UnreadableBaseline();
-        var reported = new List<Diagnostic>();
-        AnalyzerOptions options = new([baseline]);
-        var context = CompilationContext(compilation, options, reported.Add);
-
-        PublicApiBaselineAnalyzer.ReportAtCompilationEnd(
-            in context,
-            new(static () => null),
-            baseline,
-            SourceText.From(string.Empty));
-
-        await Assert.That(reported).IsEmpty();
-    }
-
-    /// <summary>Builds a compilation context for driving an end-of-compilation rule on its own.</summary>
-    /// <param name="compilation">The compilation.</param>
-    /// <param name="options">The analyzer options.</param>
-    /// <param name="report">Where to collect reported diagnostics.</param>
-    /// <returns>The context.</returns>
-    /// <remarks>
-    /// The constructor is public but deprecated in favour of running the whole pipeline, which
-    /// cannot reach this state: it needs a comparison that failed to build, and that only happens
-    /// when the renderer has a defect. Constructing it indirectly exercises the rule without the
-    /// deprecation reaching the build.
-    /// </remarks>
-    private static CompilationAnalysisContext CompilationContext(
-        Compilation compilation,
-        AnalyzerOptions options,
-        Action<Diagnostic> report)
-    {
-        object?[] arguments =
-        [
-            compilation,
-            options,
-            report,
-            (Func<Diagnostic, bool>)(static _ => true),
-            CancellationToken.None,
-        ];
-
-        return (CompilationAnalysisContext)Activator.CreateInstance(typeof(CompilationAnalysisContext), arguments)!;
-    }
-
     /// <summary>A baseline file the compiler can name but cannot produce contents for.</summary>
     private sealed class UnreadableBaseline : AdditionalText
     {

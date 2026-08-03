@@ -90,15 +90,11 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
     /// </remarks>
     internal static void ReportAtCompilationEnd(
         in CompilationAnalysisContext context,
-        Lazy<ApiComparisonState?> state,
+        Lazy<ApiComparisonState> state,
         AdditionalText baselineFile,
         SourceText baselineText)
     {
-        if (state.Value is not { } comparison)
-        {
-            return;
-        }
-
+        var comparison = state.Value;
         ReportImplicitAdditions(in context, comparison);
         ReportRemoved(in context, comparison, baselineFile, baselineText);
     }
@@ -130,7 +126,7 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
     /// tree stands for all of them. That is exact when the setting is written once for the project,
     /// which is how a compilation-wide setting is meant to be written.
     /// </remarks>
-    private static AnalyzerConfigOptions? FileScopedOptions(AnalyzerOptions options, Compilation compilation)
+    internal static AnalyzerConfigOptions? FileScopedOptions(AnalyzerOptions options, Compilation compilation)
     {
         using var trees = compilation.SyntaxTrees.GetEnumerator();
         return trees.MoveNext()
@@ -140,7 +136,7 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
 
     /// <summary>Resolves the baseline once, then wires up the per-symbol and end-of-compilation rules.</summary>
     /// <param name="context">The compilation start context.</param>
-    private static void OnCompilationStart(CompilationStartAnalysisContext context)
+    internal static void OnCompilationStart(CompilationStartAnalysisContext context)
     {
         var globalOptions = context.Options.AnalyzerConfigOptionsProvider.GlobalOptions;
         _ = globalOptions.TryGetValue(BaselinePathOptionKey, out var baselinePath);
@@ -178,7 +174,7 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
 
         // Rendering the whole surface is compilation-wide work, so it happens once, on first use,
         // and every symbol callback then costs a dictionary lookup.
-        var state = new Lazy<ApiComparisonState?>(
+        var state = new Lazy<ApiComparisonState>(
             () => ApiComparisonState.Create(compilation, baselineParse, options, CancellationToken.None));
 
         context.RegisterSymbolAction(symbolContext => ReportForSymbol(in symbolContext, state), TrackedSymbolKinds);
@@ -189,10 +185,10 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
     /// <summary>Reports a symbol that the baseline does not have, or has differently.</summary>
     /// <param name="context">The symbol context.</param>
     /// <param name="state">The shared comparison state.</param>
-    private static void ReportForSymbol(in SymbolAnalysisContext context, Lazy<ApiComparisonState?> state)
+    internal static void ReportForSymbol(in SymbolAnalysisContext context, Lazy<ApiComparisonState> state)
     {
-        if (state.Value is not { } comparison
-            || !comparison.DeclarationsBySymbol.TryGetValue(context.Symbol, out var current))
+        var comparison = state.Value;
+        if (!comparison.DeclarationsBySymbol.TryGetValue(context.Symbol, out var current))
         {
             // Not part of the surface, so there is nothing the baseline should be saying about it.
             return;
@@ -218,6 +214,99 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
             FinalLine(current.Text),
             Flatten(declared.Text),
             Flatten(current.Text)));
+    }
+
+    /// <summary>Reports that the target framework being built has no baseline.</summary>
+    /// <param name="context">The compilation context.</param>
+    /// <param name="globalOptions">The compilation-wide analyzer config options.</param>
+    /// <param name="baselinePath">The path a baseline was expected at, if the project resolved one.</param>
+    internal static void ReportMissingBaseline(
+        in CompilationAnalysisContext context,
+        AnalyzerConfigOptions globalOptions,
+        string? baselinePath)
+    {
+        if (string.IsNullOrEmpty(baselinePath))
+        {
+            // The consuming project has not opted in (the package's MSBuild targets did not resolve
+            // a path), so public API tracking is simply not in use here.
+            return;
+        }
+
+        _ = globalOptions.TryGetValue(TargetFrameworkOptionKey, out var targetFramework);
+        context.ReportDiagnostic(Diagnostic.Create(
+            PublicApiRules.MissingBaseline,
+            Location.None,
+            baselinePath,
+            string.IsNullOrEmpty(targetFramework) ? "(unknown)" : targetFramework));
+    }
+
+    /// <summary>
+    /// Finds the baseline among the additional files. The resolved MSBuild path is preferred; the
+    /// file-name fallback keeps the analyzer working when a project wires the additional file up by
+    /// hand instead of through the package's targets.
+    /// </summary>
+    /// <param name="additionalFiles">The compilation's additional files.</param>
+    /// <param name="baselinePath">The resolved baseline path, if the project has one.</param>
+    /// <returns>The baseline file, or <see langword="null"/> when there is none.</returns>
+    internal static AdditionalText? FindBaseline(ImmutableArray<AdditionalText> additionalFiles, string? baselinePath)
+    {
+        AdditionalText? byName = null;
+
+        foreach (var file in additionalFiles)
+        {
+            if (!string.IsNullOrEmpty(baselinePath)
+                && string.Equals(file.Path, baselinePath, StringComparison.OrdinalIgnoreCase))
+            {
+                return file;
+            }
+
+            if (byName is null && EndsWithFileName(file.Path))
+            {
+                byName = file;
+            }
+        }
+
+        return byName;
+    }
+
+    /// <summary>Determines whether a path's final segment is the baseline file name.</summary>
+    /// <param name="path">The path.</param>
+    /// <returns><see langword="true"/> when the path names a baseline file.</returns>
+    internal static bool EndsWithFileName(string path)
+    {
+        if (path.Length < BaselineFileName.Length
+            || !path.EndsWith(BaselineFileName, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (path.Length == BaselineFileName.Length)
+        {
+            return true;
+        }
+
+        var separator = path[path.Length - BaselineFileName.Length - 1];
+        return separator is '/' or '\\';
+    }
+
+    /// <summary>Builds a location inside the baseline file.</summary>
+    /// <param name="baseline">The baseline file.</param>
+    /// <param name="text">The baseline text.</param>
+    /// <param name="span">The span within the text.</param>
+    /// <returns>The location.</returns>
+    internal static Location BaselineLocation(AdditionalText baseline, SourceText text, TextSpan span)
+    {
+        var clamped = span.End <= text.Length ? span : new TextSpan(0, 0);
+        return Location.Create(baseline.Path, clamped, text.Lines.GetLinePositionSpan(clamped));
+    }
+
+    /// <summary>Takes the declaration line itself, without any attributes that precede it.</summary>
+    /// <param name="text">The declaration text.</param>
+    /// <returns>The final line.</returns>
+    internal static string FinalLine(string text)
+    {
+        var lastNewLine = text.LastIndexOf('\n');
+        return lastNewLine >= 0 ? text.Substring(lastNewLine + 1) : text;
     }
 
     /// <summary>Reports surface entries whose symbol a symbol action can never see.</summary>
@@ -266,99 +355,6 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
                     Flatten(declared.Value.Text)));
             }
         }
-    }
-
-    /// <summary>Reports that the target framework being built has no baseline.</summary>
-    /// <param name="context">The compilation context.</param>
-    /// <param name="globalOptions">The compilation-wide analyzer config options.</param>
-    /// <param name="baselinePath">The path a baseline was expected at, if the project resolved one.</param>
-    private static void ReportMissingBaseline(
-        in CompilationAnalysisContext context,
-        AnalyzerConfigOptions globalOptions,
-        string? baselinePath)
-    {
-        if (string.IsNullOrEmpty(baselinePath))
-        {
-            // The consuming project has not opted in (the package's MSBuild targets did not resolve
-            // a path), so public API tracking is simply not in use here.
-            return;
-        }
-
-        _ = globalOptions.TryGetValue(TargetFrameworkOptionKey, out var targetFramework);
-        context.ReportDiagnostic(Diagnostic.Create(
-            PublicApiRules.MissingBaseline,
-            Location.None,
-            baselinePath,
-            string.IsNullOrEmpty(targetFramework) ? "(unknown)" : targetFramework));
-    }
-
-    /// <summary>
-    /// Finds the baseline among the additional files. The resolved MSBuild path is preferred; the
-    /// file-name fallback keeps the analyzer working when a project wires the additional file up by
-    /// hand instead of through the package's targets.
-    /// </summary>
-    /// <param name="additionalFiles">The compilation's additional files.</param>
-    /// <param name="baselinePath">The resolved baseline path, if the project has one.</param>
-    /// <returns>The baseline file, or <see langword="null"/> when there is none.</returns>
-    private static AdditionalText? FindBaseline(ImmutableArray<AdditionalText> additionalFiles, string? baselinePath)
-    {
-        AdditionalText? byName = null;
-
-        foreach (var file in additionalFiles)
-        {
-            if (!string.IsNullOrEmpty(baselinePath)
-                && string.Equals(file.Path, baselinePath, StringComparison.OrdinalIgnoreCase))
-            {
-                return file;
-            }
-
-            if (byName is null && EndsWithFileName(file.Path))
-            {
-                byName = file;
-            }
-        }
-
-        return byName;
-    }
-
-    /// <summary>Determines whether a path's final segment is the baseline file name.</summary>
-    /// <param name="path">The path.</param>
-    /// <returns><see langword="true"/> when the path names a baseline file.</returns>
-    private static bool EndsWithFileName(string path)
-    {
-        if (path.Length < BaselineFileName.Length
-            || !path.EndsWith(BaselineFileName, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (path.Length == BaselineFileName.Length)
-        {
-            return true;
-        }
-
-        var separator = path[path.Length - BaselineFileName.Length - 1];
-        return separator is '/' or '\\';
-    }
-
-    /// <summary>Builds a location inside the baseline file.</summary>
-    /// <param name="baseline">The baseline file.</param>
-    /// <param name="text">The baseline text.</param>
-    /// <param name="span">The span within the text.</param>
-    /// <returns>The location.</returns>
-    private static Location BaselineLocation(AdditionalText baseline, SourceText text, TextSpan span)
-    {
-        var clamped = span.End <= text.Length ? span : new TextSpan(0, 0);
-        return Location.Create(baseline.Path, clamped, text.Lines.GetLinePositionSpan(clamped));
-    }
-
-    /// <summary>Takes the declaration line itself, without any attributes that precede it.</summary>
-    /// <param name="text">The declaration text.</param>
-    /// <returns>The final line.</returns>
-    private static string FinalLine(string text)
-    {
-        var lastNewLine = text.LastIndexOf('\n');
-        return lastNewLine >= 0 ? text.Substring(lastNewLine + 1) : text;
     }
 
     /// <summary>Collapses a multi-line declaration onto one line so it fits in a diagnostic message.</summary>

@@ -47,7 +47,7 @@ internal static class ApiSurfaceRenderer
                 string.Empty,
                 "assembly: ",
                 options,
-                writer.CountLineCallback);
+                writer.AssemblyAttribute);
         }
 
         var namespaces = new List<INamespaceSymbol>();
@@ -146,7 +146,7 @@ internal static class ApiSurfaceRenderer
     /// <summary>Appends a type's declaration header: modifiers, name, base list and constraints.</summary>
     /// <param name="builder">The builder the surface is being written into.</param>
     /// <param name="type">The type.</param>
-    private static void AppendTypeHeader(PooledStringBuilder builder, INamedTypeSymbol type)
+    internal static void AppendTypeHeader(PooledStringBuilder builder, INamedTypeSymbol type)
     {
         ApiModifiers.AppendType(builder, type);
         _ = builder.Append(type.ToDisplayString(ApiDisplayFormats.TypeDeclarationName));
@@ -172,7 +172,7 @@ internal static class ApiSurfaceRenderer
     /// <param name="options">The render options.</param>
     /// <param name="fileScoped">Whether the surface uses a file-scoped namespace declaration.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
-    private static void RenderNamespace(
+    internal static void RenderNamespace(
         SurfaceWriter writer,
         INamespaceSymbol namespaceSymbol,
         ApiRenderOptions options,
@@ -216,7 +216,7 @@ internal static class ApiSurfaceRenderer
     /// an assembly that later grows a second namespace reformats its baseline once, which is a real
     /// API change being recorded, not churn.
     /// </remarks>
-    private static bool UsesFileScopedNamespace(List<INamespaceSymbol> namespaces, ApiRenderOptions options)
+    internal static bool UsesFileScopedNamespace(List<INamespaceSymbol> namespaces, ApiRenderOptions options)
     {
         var withTypes = 0;
         foreach (var namespaceSymbol in namespaces)
@@ -237,31 +237,12 @@ internal static class ApiSurfaceRenderer
         return withTypes == 1;
     }
 
-    /// <summary>Renders a run of types at one indentation level.</summary>
-    /// <param name="writer">The surface writer.</param>
-    /// <param name="types">The types.</param>
-    /// <param name="indent">The indentation.</param>
-    /// <param name="options">The render options.</param>
-    /// <param name="cancellationToken">A cancellation token.</param>
-    private static void RenderTypes(
-        SurfaceWriter writer,
-        List<INamedTypeSymbol> types,
-        string indent,
-        ApiRenderOptions options,
-        CancellationToken cancellationToken)
-    {
-        foreach (var type in types)
-        {
-            RenderType(writer, type, indent, options, cancellationToken);
-        }
-    }
-
     /// <summary>Collects every namespace the assembly declares, skipping excluded ones.</summary>
     /// <param name="namespaceSymbol">The namespace to walk.</param>
     /// <param name="into">The list to add to.</param>
     /// <param name="options">The render options.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
-    private static void CollectNamespaces(
+    internal static void CollectNamespaces(
         INamespaceSymbol namespaceSymbol,
         List<INamespaceSymbol> into,
         ApiRenderOptions options,
@@ -286,7 +267,7 @@ internal static class ApiSurfaceRenderer
     /// <param name="container">The namespace or type.</param>
     /// <param name="options">The render options.</param>
     /// <returns>The types.</returns>
-    private static List<INamedTypeSymbol> VisibleTypes(INamespaceOrTypeSymbol container, ApiRenderOptions options)
+    internal static List<INamedTypeSymbol> VisibleTypes(INamespaceOrTypeSymbol container, ApiRenderOptions options)
     {
         var declared = container.GetTypeMembers();
         var types = new List<INamedTypeSymbol>(declared.Length);
@@ -328,7 +309,7 @@ internal static class ApiSurfaceRenderer
     /// <param name="indent">The indentation the declaration starts at.</param>
     /// <param name="options">The render options.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
-    private static void RenderType(
+    internal static void RenderType(
         SurfaceWriter writer,
         INamedTypeSymbol type,
         string indent,
@@ -374,46 +355,13 @@ internal static class ApiSurfaceRenderer
         writer.Line(indent, "}", null);
     }
 
-    /// <summary>Renders an enum's members.</summary>
-    /// <param name="writer">The surface writer.</param>
-    /// <param name="type">The enum.</param>
-    /// <param name="indent">The indentation members start at.</param>
-    /// <param name="options">The render options.</param>
-    private static void RenderEnumMembers(
-        SurfaceWriter writer,
-        INamedTypeSymbol type,
-        string indent,
-        ApiRenderOptions options)
-    {
-        // Enum members keep their declared order: the values are what matter, and reordering them
-        // alphabetically would make the baseline read nothing like the source it describes.
-        foreach (var member in type.GetMembers())
-        {
-            if (member is not IFieldSymbol { IsConst: true } field || !ApiSymbolFilter.IsExternallyVisible(field))
-            {
-                continue;
-            }
-
-            if (!options.IncludeGeneratedCode && ApiSymbolFilter.IsGeneratedCode(field))
-            {
-                continue;
-            }
-
-            writer.Pending = field;
-            ApiAttributeRenderer.Append(writer.Builder, field.GetAttributes(), indent, string.Empty, options, writer.CountLineCallback);
-            writer.BeginLine(indent);
-            _ = writer.Builder.Append(ApiLiterals.Identifier(field.Name)).Append(" = ").Append(ApiLiterals.FormatConstant(field.ConstantValue)).Append(',');
-            writer.EndLine(field);
-        }
-    }
-
     /// <summary>Renders a type's members and nested types.</summary>
     /// <param name="writer">The surface writer.</param>
     /// <param name="type">The type.</param>
     /// <param name="indent">The indentation members start at.</param>
     /// <param name="options">The render options.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
-    private static void RenderMembers(
+    internal static void RenderMembers(
         SurfaceWriter writer,
         INamedTypeSymbol type,
         string indent,
@@ -455,7 +403,7 @@ internal static class ApiSurfaceRenderer
     /// <summary>Gets the key a type orders under within its container.</summary>
     /// <param name="type">The type.</param>
     /// <returns>The sort key.</returns>
-    private static string TypeSortKey(INamedTypeSymbol type)
+    internal static string TypeSortKey(INamedTypeSymbol type)
     {
         if (!RoslynFeatures.IsExtensionContainer(type))
         {
@@ -479,7 +427,7 @@ internal static class ApiSurfaceRenderer
     /// block's receiver is spelled in terms of those parameters, so a header without the list names
     /// something nothing declares — text C# cannot read back as the surface it was rendered from.
     /// </remarks>
-    private static void AppendExtensionHeader(PooledStringBuilder builder, INamedTypeSymbol type)
+    internal static void AppendExtensionHeader(PooledStringBuilder builder, INamedTypeSymbol type)
     {
         _ = builder.Append("extension");
         AppendTypeParameters(builder, type.TypeParameters);
@@ -497,50 +445,37 @@ internal static class ApiSurfaceRenderer
     /// <summary>Appends a type's base type and directly implemented interfaces.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="type">The type.</param>
-    private static void AppendBaseList(PooledStringBuilder builder, INamedTypeSymbol type)
+    internal static void AppendBaseList(PooledStringBuilder builder, INamedTypeSymbol type)
     {
-        var bases = new List<string>();
+        // The base type is written straight out: there is at most one and it always leads. Only the
+        // interfaces need collecting, because their order in source carries no meaning and sorting
+        // is what keeps the baseline from churning when the list is rearranged. Collecting both into
+        // one list and copying cost a second list and its growth array for every type rendered.
+        var baseType = type.TypeKind == TypeKind.Class
+            && type.BaseType is { SpecialType: not SpecialType.System_Object } declared
+            ? declared.ToDisplayString(ApiDisplayFormats.TypeReference)
+            : null;
 
-        if (type.TypeKind == TypeKind.Class && type.BaseType is { SpecialType: not SpecialType.System_Object } baseType)
-        {
-            bases.Add(baseType.ToDisplayString(ApiDisplayFormats.TypeReference));
-        }
-
-        var interfaces = new List<string>();
-        foreach (var implemented in type.Interfaces)
-        {
-            if (ApiSymbolFilter.IsExternallyVisible(implemented))
-            {
-                interfaces.Add(implemented.ToDisplayString(ApiDisplayFormats.TypeReference));
-            }
-        }
-
-        // The order interfaces appear in source carries no meaning, so sorting keeps the baseline
-        // from churning when the list is rearranged.
-        interfaces.Sort(StringComparer.Ordinal);
-        bases.AddRange(interfaces);
-
-        if (bases.Count == 0)
+        var interfaces = VisibleInterfaces(type);
+        if (baseType is null && interfaces is null)
         {
             return;
         }
 
         _ = builder.Append(" : ");
-        for (var i = 0; i < bases.Count; i++)
-        {
-            if (i > 0)
-            {
-                _ = builder.Append(", ");
-            }
 
-            _ = builder.Append(bases[i]);
+        if (baseType is not null)
+        {
+            _ = builder.Append(baseType);
         }
+
+        AppendInterfaces(builder, interfaces, baseType is not null);
     }
 
     /// <summary>Appends a property's name, or an indexer's parameter list.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="property">The property.</param>
-    private static void AppendPropertyName(PooledStringBuilder builder, IPropertySymbol property)
+    internal static void AppendPropertyName(PooledStringBuilder builder, IPropertySymbol property)
     {
         if (!property.IsIndexer)
         {
@@ -556,7 +491,7 @@ internal static class ApiSurfaceRenderer
     /// <summary>Appends a property's accessor list.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="property">The property.</param>
-    private static void AppendAccessors(PooledStringBuilder builder, IPropertySymbol property)
+    internal static void AppendAccessors(PooledStringBuilder builder, IPropertySymbol property)
     {
         _ = builder.Append(" { ");
 
@@ -582,7 +517,7 @@ internal static class ApiSurfaceRenderer
     /// <param name="builder">The builder.</param>
     /// <param name="accessor">The accessor.</param>
     /// <param name="property">The property that declares it.</param>
-    private static void AppendAccessorAccessibility(
+    internal static void AppendAccessorAccessibility(
         PooledStringBuilder builder,
         IMethodSymbol accessor,
         IPropertySymbol property)
@@ -599,7 +534,7 @@ internal static class ApiSurfaceRenderer
     /// <summary>Appends a method's return type, name, parameters and constraints.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="method">The method.</param>
-    private static void AppendMethod(PooledStringBuilder builder, IMethodSymbol method)
+    internal static void AppendMethod(PooledStringBuilder builder, IMethodSymbol method)
     {
         AppendMethodName(builder, method);
         _ = builder.Append('(');
@@ -614,6 +549,119 @@ internal static class ApiSurfaceRenderer
         }
 
         ApiConstraints.Append(builder, method.TypeParameters);
+    }
+
+    /// <summary>Appends the <c>checked</c> keyword when the operator is the checked form.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="method">The operator.</param>
+    /// <remarks>C# writes the keyword after <c>operator</c>, before the token or the target type.</remarks>
+    internal static void AppendCheckedKeyword(PooledStringBuilder builder, IMethodSymbol method)
+    {
+        if (!ApiLiterals.IsCheckedOperator(method.Name))
+        {
+            return;
+        }
+
+        _ = builder.Append("checked ");
+    }
+
+    /// <summary>
+    /// Rewrites a spelled-out default expression to the short form. Roslyn writes the type out in
+    /// full; the short form is what the source says and what reads naturally.
+    /// </summary>
+    /// <param name="builder">The builder the surface is being written into.</param>
+    /// <param name="parameter">The rendered parameter.</param>
+    internal static void AppendNormalizedDefault(PooledStringBuilder builder, string parameter)
+    {
+        const string Marker = " = default(";
+        var index = parameter.IndexOf(Marker, StringComparison.Ordinal);
+        if (index >= 0 && parameter.EndsWith(")", StringComparison.Ordinal))
+        {
+            _ = builder.Append(parameter, index).Append(" = default");
+            return;
+        }
+
+        _ = builder.Append(parameter);
+    }
+
+    /// <summary>Appends a type parameter list, if there is one.</summary>
+    /// <param name="builder">The builder the surface is being written into.</param>
+    /// <param name="typeParameters">The type parameters.</param>
+    /// <remarks>
+    /// Only the names are written; the constraints follow the rest of the declaration, which is
+    /// where C# puts them.
+    /// </remarks>
+    internal static void AppendTypeParameters(PooledStringBuilder builder, ImmutableArray<ITypeParameterSymbol> typeParameters)
+    {
+        if (typeParameters.IsEmpty)
+        {
+            return;
+        }
+
+        _ = builder.Append('<');
+        for (var i = 0; i < typeParameters.Length; i++)
+        {
+            if (i > 0)
+            {
+                _ = builder.Append(", ");
+            }
+
+            _ = builder.Append(ApiLiterals.Identifier(typeParameters[i].Name));
+        }
+
+        _ = builder.Append('>');
+    }
+
+    /// <summary>Renders a run of types at one indentation level.</summary>
+    /// <param name="writer">The surface writer.</param>
+    /// <param name="types">The types.</param>
+    /// <param name="indent">The indentation.</param>
+    /// <param name="options">The render options.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    private static void RenderTypes(
+        SurfaceWriter writer,
+        List<INamedTypeSymbol> types,
+        string indent,
+        ApiRenderOptions options,
+        CancellationToken cancellationToken)
+    {
+        foreach (var type in types)
+        {
+            RenderType(writer, type, indent, options, cancellationToken);
+        }
+    }
+
+    /// <summary>Renders an enum's members.</summary>
+    /// <param name="writer">The surface writer.</param>
+    /// <param name="type">The enum.</param>
+    /// <param name="indent">The indentation members start at.</param>
+    /// <param name="options">The render options.</param>
+    private static void RenderEnumMembers(
+        SurfaceWriter writer,
+        INamedTypeSymbol type,
+        string indent,
+        ApiRenderOptions options)
+    {
+        // Enum members keep their declared order: the values are what matter, and reordering them
+        // alphabetically would make the baseline read nothing like the source it describes.
+        foreach (var member in type.GetMembers())
+        {
+            if (member is not IFieldSymbol { IsConst: true } field || !ApiSymbolFilter.IsExternallyVisible(field))
+            {
+                continue;
+            }
+
+            if (!options.IncludeGeneratedCode && ApiSymbolFilter.IsGeneratedCode(field))
+            {
+                continue;
+            }
+
+            writer.Pending = field;
+            ApiAttributeRenderer.Append(writer.Builder, field.GetAttributes(), indent, string.Empty, options, writer.CountLineCallback);
+            writer.BeginLine(indent);
+            _ = writer.Builder.Append(ApiLiterals.Identifier(field.Name)).Append(" = ").Append(ApiLiterals.FormatConstant(field.ConstantValue)).Append(',');
+            writer.EndLine(field);
+        }
     }
 
     /// <summary>Appends the part of a method declaration that precedes its parameter list.</summary>
@@ -657,20 +705,6 @@ internal static class ApiSurfaceRenderer
         }
     }
 
-    /// <summary>Appends the <c>checked</c> keyword when the operator is the checked form.</summary>
-    /// <param name="builder">The builder.</param>
-    /// <param name="method">The operator.</param>
-    /// <remarks>C# writes the keyword after <c>operator</c>, before the token or the target type.</remarks>
-    private static void AppendCheckedKeyword(PooledStringBuilder builder, IMethodSymbol method)
-    {
-        if (!ApiLiterals.IsCheckedOperator(method.Name))
-        {
-            return;
-        }
-
-        _ = builder.Append("checked ");
-    }
-
     /// <summary>Appends a comma-separated parameter list.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="parameters">The parameters.</param>
@@ -702,53 +736,6 @@ internal static class ApiSurfaceRenderer
         }
     }
 
-    /// <summary>
-    /// Rewrites a spelled-out default expression to the short form. Roslyn writes the type out in
-    /// full; the short form is what the source says and what reads naturally.
-    /// </summary>
-    /// <param name="builder">The builder the surface is being written into.</param>
-    /// <param name="parameter">The rendered parameter.</param>
-    private static void AppendNormalizedDefault(PooledStringBuilder builder, string parameter)
-    {
-        const string Marker = " = default(";
-        var index = parameter.IndexOf(Marker, StringComparison.Ordinal);
-        if (index >= 0 && parameter.EndsWith(")", StringComparison.Ordinal))
-        {
-            _ = builder.Append(parameter, index).Append(" = default");
-            return;
-        }
-
-        _ = builder.Append(parameter);
-    }
-
-    /// <summary>Appends a type parameter list, if there is one.</summary>
-    /// <param name="builder">The builder the surface is being written into.</param>
-    /// <param name="typeParameters">The type parameters.</param>
-    /// <remarks>
-    /// Only the names are written; the constraints follow the rest of the declaration, which is
-    /// where C# puts them.
-    /// </remarks>
-    private static void AppendTypeParameters(PooledStringBuilder builder, ImmutableArray<ITypeParameterSymbol> typeParameters)
-    {
-        if (typeParameters.IsEmpty)
-        {
-            return;
-        }
-
-        _ = builder.Append('<');
-        for (var i = 0; i < typeParameters.Length; i++)
-        {
-            if (i > 0)
-            {
-                _ = builder.Append(", ");
-            }
-
-            _ = builder.Append(ApiLiterals.Identifier(typeParameters[i].Name));
-        }
-
-        _ = builder.Append('>');
-    }
-
     /// <summary>Gets a namespace's name as its declaration writes it.</summary>
     /// <param name="namespaceSymbol">The namespace.</param>
     /// <returns>The name, with any keyword segment escaped.</returns>
@@ -761,8 +748,56 @@ internal static class ApiSurfaceRenderer
     private static string QualifiedName(INamespaceSymbol namespaceSymbol) =>
         namespaceSymbol.ToDisplayString(ApiDisplayFormats.QualifiedName);
 
-    /// <summary>Accumulates the surface text while recording which symbol each line belongs to.</summary>
-    private sealed class SurfaceWriter
+    /// <summary>Collects the interfaces a type implements that a consumer can name.</summary>
+    /// <param name="type">The type.</param>
+    /// <returns>The rendered interface names, or <see langword="null"/> when there are none.</returns>
+    /// <remarks>Staying null for a type that implements nothing keeps a list off the heap entirely.</remarks>
+    private static List<string>? VisibleInterfaces(INamedTypeSymbol type)
+    {
+        List<string>? interfaces = null;
+        foreach (var implemented in type.Interfaces)
+        {
+            if (ApiSymbolFilter.IsExternallyVisible(implemented))
+            {
+                interfaces ??= new List<string>(type.Interfaces.Length);
+                interfaces.Add(implemented.ToDisplayString(ApiDisplayFormats.TypeReference));
+            }
+        }
+
+        return interfaces;
+    }
+
+    /// <summary>Appends a type's interfaces, sorted, after whatever already leads the base list.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="interfaces">The interfaces, or <see langword="null"/>.</param>
+    /// <param name="afterBaseType">Whether a base type has already been written.</param>
+    private static void AppendInterfaces(PooledStringBuilder builder, List<string>? interfaces, bool afterBaseType)
+    {
+        if (interfaces is null)
+        {
+            return;
+        }
+
+        interfaces.Sort(StringComparer.Ordinal);
+        for (var i = 0; i < interfaces.Count; i++)
+        {
+            if (afterBaseType || i > 0)
+            {
+                _ = builder.Append(", ");
+            }
+
+            _ = builder.Append(interfaces[i]);
+        }
+    }
+
+    /// <summary>Accumulates the surface text, the symbol behind each line, and the declarations.</summary>
+    /// <remarks>
+    /// The declarations are collected as the text is written rather than parsed back out of it
+    /// afterwards. Each one is a span of the document — its attribute lines and its own line — paired
+    /// with the identity derived from its symbol. What a declaration's text comes to is the same
+    /// either way: the lines it occupies, each trimmed of the indentation its nesting gave it.
+    /// </remarks>
+    internal sealed class SurfaceWriter
     {
         /// <summary>The initial buffer a surface document is built in.</summary>
         private const int DocumentCapacity = 4096;
@@ -772,6 +807,21 @@ internal static class ApiSurfaceRenderer
 
         /// <summary>The symbol each emitted line belongs to, indexed by line number.</summary>
         private readonly List<ISymbol?> _symbolsByLine = new(LineCapacity);
+
+        /// <summary>Where each declaration sits in the document, and what produced it.</summary>
+        private readonly List<RenderedApiSurface.Written> _declarations = new(LineCapacity);
+
+        /// <summary>The symbol of the declaration being written, if one is open.</summary>
+        private ISymbol? _openSymbol;
+
+        /// <summary>Where in the document the open declaration started.</summary>
+        private int _openStart;
+
+        /// <summary>The line the open declaration started on.</summary>
+        private int _openLine;
+
+        /// <summary>The symbol the next emitted line belongs to.</summary>
+        private ISymbol? _pending;
 
         /// <summary>Initializes a new instance of the <see cref="SurfaceWriter"/> class.</summary>
         internal SurfaceWriter() => CountLineCallback = CountLine;
@@ -783,13 +833,29 @@ internal static class ApiSurfaceRenderer
         /// Gets <see cref="CountLine"/> as a delegate, created once. The attribute renderer takes the
         /// callback per call, and a method group conversion there allocates on every member.
         /// </summary>
-        internal Action CountLineCallback { get; }
+        internal Action<string> CountLineCallback { get; }
 
         /// <summary>
         /// Gets or sets the symbol the next emitted line belongs to. A declaration's first line is
         /// its first attribute, matching where the parser reports the declaration as starting.
         /// </summary>
-        internal ISymbol? Pending { get; set; }
+        internal ISymbol? Pending
+        {
+            get => _pending;
+            set
+            {
+                _pending = value;
+
+                if (value is null)
+                {
+                    return;
+                }
+
+                _openSymbol = value;
+                _openStart = Builder.Length;
+                _openLine = _symbolsByLine.Count;
+            }
+        }
 
         /// <summary>
         /// Starts a line the caller writes into <see cref="Builder"/> directly, rather than handing
@@ -798,13 +864,14 @@ internal static class ApiSurfaceRenderer
         /// <param name="indent">The indentation.</param>
         internal void BeginLine(string indent) => _ = Builder.Append(indent);
 
-        /// <summary>Ends the line started by <see cref="BeginLine"/>.</summary>
+        /// <summary>Ends the line started by <see cref="BeginLine"/>, closing the open declaration.</summary>
         /// <param name="symbol">The symbol the line declares, when it is the declaration's first line.</param>
         internal void EndLine(ISymbol? symbol)
         {
+            CloseDeclaration(symbol);
             _ = Builder.Append('\n');
-            _symbolsByLine.Add(Pending ?? symbol);
-            Pending = null;
+            _symbolsByLine.Add(_pending ?? symbol);
+            _pending = null;
         }
 
         /// <summary>Writes one indented line.</summary>
@@ -813,20 +880,47 @@ internal static class ApiSurfaceRenderer
         /// <param name="symbol">The symbol the line declares, when it is the declaration's first line.</param>
         internal void Line(string indent, string content, ISymbol? symbol)
         {
-            _ = Builder.Append(indent).Append(content).Append('\n');
-            _symbolsByLine.Add(Pending ?? symbol);
-            Pending = null;
+            _ = Builder.Append(indent).Append(content);
+            CloseDeclaration(symbol);
+            _ = Builder.Append('\n');
+            _symbolsByLine.Add(_pending ?? symbol);
+            _pending = null;
+        }
+
+        /// <summary>Records one assembly-level attribute, which stands alone rather than in a declaration.</summary>
+        /// <param name="rendered">The attribute as it was written, without its brackets.</param>
+        internal void AssemblyAttribute(string rendered)
+        {
+            var start = Builder.Length;
+            _declarations.Add(new(null, rendered, start, start, _symbolsByLine.Count));
+            CountLine(rendered);
         }
 
         /// <summary>Finishes the rendering.</summary>
         /// <returns>The rendered surface.</returns>
-        internal RenderedApiSurface Complete() => new(Builder.ToString(), _symbolsByLine.ToArray());
+        internal RenderedApiSurface Complete() =>
+            new(Builder.ToString(), _symbolsByLine.ToArray(), _declarations.ToImmutableArray());
 
         /// <summary>Records that a line was written directly to <see cref="Builder"/>.</summary>
-        private void CountLine()
+        /// <param name="rendered">The attribute the line carries, unused for a declaration's own.</param>
+        internal void CountLine(string rendered)
         {
-            _symbolsByLine.Add(Pending);
-            Pending = null;
+            _ = rendered;
+            _symbolsByLine.Add(_pending);
+            _pending = null;
+        }
+
+        /// <summary>Closes the declaration being written, if the line just finished is its own.</summary>
+        /// <param name="symbol">The symbol the line declares.</param>
+        private void CloseDeclaration(ISymbol? symbol)
+        {
+            if (_openSymbol is null || (_pending is null && symbol is null))
+            {
+                return;
+            }
+
+            _declarations.Add(new(_openSymbol, null, _openStart, Builder.Length, _openLine));
+            _openSymbol = null;
         }
     }
 }
