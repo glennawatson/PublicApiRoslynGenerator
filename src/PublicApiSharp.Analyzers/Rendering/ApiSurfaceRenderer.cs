@@ -291,6 +291,15 @@ internal static class ApiSurfaceRenderer
                 continue;
             }
 
+            // A block declares no accessibility of its own and reads as public because its container
+            // does. What a consumer reaches is its members, so one that offers none is not surface:
+            // recording its header would commit the baseline to API nothing outside can call, and
+            // render an empty block the reader has to account for.
+            if (RoslynFeatures.IsExtensionContainer(member) && !DeclaresRenderedMember(member, options))
+            {
+                continue;
+            }
+
             types.Add(member);
         }
 
@@ -398,6 +407,32 @@ internal static class ApiSurfaceRenderer
         {
             RenderType(writer, nested, indent, options, cancellationToken);
         }
+    }
+
+    /// <summary>Returns whether a type declares a member that the surface renders.</summary>
+    /// <param name="type">The type.</param>
+    /// <param name="options">The render options.</param>
+    /// <returns><see langword="true"/> when at least one member reaches the surface.</returns>
+    /// <remarks>
+    /// The test matches the one <see cref="RenderMembers"/> applies, so a type can never be kept for
+    /// members that are then filtered out of it.
+    /// </remarks>
+    internal static bool DeclaresRenderedMember(INamedTypeSymbol type, ApiRenderOptions options)
+    {
+        var declared = type.GetMembers();
+        for (var index = 0; index < declared.Length; index++)
+        {
+            var member = declared[index];
+            if (member is not INamedTypeSymbol
+                && ApiSymbolFilter.IsRenderableMember(member)
+                && ApiSymbolFilter.IsExternallyVisible(member)
+                && (options.IncludeGeneratedCode || !ApiSymbolFilter.IsGeneratedCode(member)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Gets the key a type orders under within its container.</summary>

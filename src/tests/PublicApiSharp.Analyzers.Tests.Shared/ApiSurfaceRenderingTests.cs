@@ -406,6 +406,50 @@ public class ApiSurfaceRenderingTests
         await Assert.That(parsed.Error).IsNull();
     }
 
+    /// <summary>Verifies a block whose members are all internal contributes nothing to the surface.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    /// <remarks>
+    /// A block declares no accessibility of its own and reads as public because its container is. What a
+    /// consumer can reach is its members, so a block holding none of them is not surface, and recording
+    /// its header commits the baseline to API nothing outside the assembly can call.
+    /// </remarks>
+    [Test]
+    public async Task ExtensionBlockOfInternalMembersIsNotRenderedAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = """
+                              namespace Sample;
+
+                              public interface IResolver;
+
+                              public static class Helpers
+                              {
+                                  extension(IResolver resolver)
+                                  {
+                                      internal IResolver Hidden() => resolver;
+                                  }
+                              }
+                              """;
+
+        const string Expected = """
+                                namespace Sample;
+
+                                public static class Helpers
+                                {
+                                }
+                                public interface IResolver
+                                {
+                                }
+
+                                """;
+
+        await AssertRendersAsync(Source, Expected);
+    }
+
     /// <summary>Renders the source and compares it to the expected surface.</summary>
     /// <param name="source">The C# source to render.</param>
     /// <param name="expected">The expected surface text.</param>
