@@ -14,6 +14,9 @@ public class ApiRenderOptionsTests
     /// <summary>The editorconfig key listing attribute patterns to leave out.</summary>
     private const string ExcludedAttributesKey = "publicapisharp.excluded_attributes";
 
+    /// <summary>The configuration key for namespace subtrees omitted from the baseline.</summary>
+    private const string ExcludedNamespacePrefixesKey = "publicapisharp.excluded_namespace_prefixes";
+
     /// <summary>An attribute used across these tests as a stand-in for a real one.</summary>
     private const string ObsoleteAttributeName = "System.ObsoleteAttribute";
 
@@ -356,6 +359,69 @@ public class ApiRenderOptionsTests
                                     """;
 
         return PublicApiVerifier.AnalyzeWithEditorConfigAsync(Source, Baseline, EditorConfig);
+    }
+
+    /// <summary>Verifies only namespaces with retained public declarations decide the namespace syntax.</summary>
+    /// <param name="source">The namespace arrangement, including declarations excluded from the surface.</param>
+    /// <param name="names">The retained namespace names, separated by commas.</param>
+    /// <param name="fileScoped">Whether the sole retained namespace can be file-scoped.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("namespace Hidden { internal class C { } } namespace Visible { public interface I { } }", "Visible", true)]
+    [Arguments("namespace A { namespace B { namespace C { namespace D { public interface I { } } } } }", "A.B.C.D", true)]
+    [Arguments("namespace Left.Leaf { public interface I { } } namespace Right.Leaf { public interface I { } }", "Left.Leaf,Right.Leaf", false)]
+    [Arguments("namespace @class.@namespace { public interface @interface { } }", "@class.@namespace", true)]
+    [Arguments("public interface Global { } namespace Visible { public interface I { } }", "Visible", false)]
+    [Arguments("namespace Hidden.Generated { [System.CodeDom.Compiler.GeneratedCode(\"tool\", \"1\")] public interface G { } } namespace Visible { public interface I { } }", "Visible", true)]
+    [Arguments("namespace Hidden { internal class C { } namespace Nested { internal class D { } } }", "", false)]
+    public async Task RetainedNamespacesDetermineFileScopedRenderingAsync(string source, string names, bool fileScoped)
+    {
+        var rendered = ApiSurfaceTestHost.Render(source);
+        var root = await Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(rendered).GetRootAsync();
+        var namespaces = new List<string>();
+        var fileScopedCount = 0;
+        foreach (var node in root.DescendantNodes())
+        {
+            if (node is Microsoft.CodeAnalysis.CSharp.Syntax.BaseNamespaceDeclarationSyntax declaration)
+            {
+                namespaces.Add(declaration.Name.ToString());
+                if (declaration is Microsoft.CodeAnalysis.CSharp.Syntax.FileScopedNamespaceDeclarationSyntax)
+                {
+                    fileScopedCount++;
+                }
+            }
+        }
+
+        await Assert.That(namespaces).IsEquivalentTo(names.Split(',', StringSplitOptions.RemoveEmptyEntries));
+        await Assert.That(fileScopedCount).IsEqualTo(fileScoped ? 1 : 0);
+        await Assert.That(root.GetDiagnostics()).IsEmpty();
+        await PublicApiVerifier.AnalyzeAsync(source, rendered);
+    }
+
+    /// <summary>Verifies excluding an ancestor prunes deep descendants while retaining a similar namespace name.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task ExcludedNamespacePrunesNestedDescendantsBeforeChoosingFileScopeAsync()
+    {
+        const string Source = """
+            namespace Removed
+            {
+                public interface Root { }
+                namespace Deep.Nested { public interface Child { } }
+            }
+            namespace RemovedNeighbor { public interface Kept { } }
+            """;
+        const string Remaining = "namespace RemovedNeighbor { public interface Kept { } }";
+        var options = Read((ExcludedNamespacePrefixesKey, "Removed"));
+        var rendered = ApiSurfaceTestHost.Render(Source, options);
+
+        await Assert.That(rendered).IsEqualTo(ApiSurfaceTestHost.Render(Remaining));
+        await Assert.That(rendered).StartsWith("namespace RemovedNeighbor;");
+        await PublicApiVerifier.AnalyzeWithConfigAsync(
+            Source,
+            rendered,
+            PublicApiVerifier.BaselineFileName,
+            "publicapisharp.excluded_namespace_prefixes = Removed");
     }
 
     /// <summary>Builds options from the given editorconfig entries.</summary>

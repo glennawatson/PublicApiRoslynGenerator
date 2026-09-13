@@ -219,4 +219,150 @@ public class RenderedApiSurfaceTests
             await Assert.That(surface.SymbolAtLine(lastLine + 1)).IsNull();
         }
     }
+
+    /// <summary>Verifies every line around attributed nested types and enum members maps to its owner.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task NestedAttributesAndEnumMembersMapOnlyDeclarationBoundariesAsync()
+    {
+        const int AssemblyAttributeCount = 2;
+        const string Source = """
+            [assembly: System.CLSCompliant(true)]
+            [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Friend")]
+            [System.Obsolete, System.CLSCompliant(true)]
+            public class Outer
+            {
+                [System.Obsolete, System.CLSCompliant(true)]
+                public class Nested
+                {
+                    [System.Obsolete, System.CLSCompliant(true)]
+                    public enum Values
+                    {
+                        [System.Obsolete, System.CLSCompliant(true)] First,
+                        [System.Obsolete, System.CLSCompliant(true)] Last
+                    }
+                }
+            }
+            """;
+        var compilation = ApiSurfaceTestHost.Compile(Source);
+        var outer = compilation.GetTypeByMetadataName("Outer")!;
+        var nested = outer.GetTypeMembers("Nested")[0];
+        var values = nested.GetTypeMembers("Values")[0];
+        ISymbol[] symbols = [outer, outer.InstanceConstructors[0], nested, nested.InstanceConstructors[0],
+            values, values.GetMembers("First")[0], values.GetMembers("Last")[0]];
+        var surface = ApiSurfaceRenderer.Render(compilation, ApiRenderOptions.Default, CancellationToken.None);
+
+        await AssertCompleteLineMapAsync(surface, symbols, AssemblyAttributeCount);
+    }
+
+    /// <summary>Verifies extension headers and their attributed members retain their own line mappings.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task ExtensionHeadersAndAttributedMembersRetainSeparateLineMappingsAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = """
+            public static class Extensions
+            {
+                extension(string receiver)
+                {
+                    [System.Obsolete, System.CLSCompliant(true)]
+                    public int LengthPlusOne => receiver.Length + 1;
+                    [System.Obsolete, System.CLSCompliant(true)]
+                    public string Echo() => receiver;
+                }
+            }
+            """;
+        var compilation = ApiSurfaceTestHost.Compile(Source);
+        var type = compilation.GetTypeByMetadataName("Extensions")!;
+        var extension = type.GetTypeMembers().Single(RoslynFeatures.IsExtensionContainer);
+        ISymbol[] symbols = [type, extension, extension.GetMembers("LengthPlusOne")[0], extension.GetMembers("Echo")[0]];
+        var surface = ApiSurfaceRenderer.Render(compilation, ApiRenderOptions.Default, CancellationToken.None);
+
+        await AssertCompleteLineMapAsync(surface, symbols, 0);
+    }
+
+    /// <summary>Verifies empty storage and repeated growth preserve every written declaration and boundary.</summary>
+    /// <param name="count">The number of declarations spanning many growth steps.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments(0)]
+    [Arguments(8193)]
+    public async Task SurfaceStoragePreservesEmptyAndLargeWritesAsync(int count)
+    {
+        const int LinesPerDeclaration = 2;
+        var symbol = ApiSurfaceTestHost.Compile(TypeSource).GetTypeByMetadataName(TypeName)!;
+        var writer = new ApiSurfaceRenderer.SurfaceWriter();
+        for (var index = 0; index < count; index++)
+        {
+            writer.Pending = symbol;
+            writer.Line(string.Empty, TypeHeader, symbol);
+            writer.Line(string.Empty, string.Empty, null);
+        }
+
+        var surface = writer.Complete();
+        var text = SourceText.From(surface.Text);
+        await Assert.That(surface.Declarations.Length).IsEqualTo(count);
+        await Assert.That(surface.SymbolAtLine(-1)).IsNull();
+        await Assert.That(surface.SymbolAtLine(int.MinValue)).IsNull();
+        await Assert.That(surface.SymbolAtLine(int.MaxValue)).IsNull();
+        await Assert.That(surface.SymbolAtLine(text.Lines.Count - 1)).IsNull();
+        await Assert.That(surface.SymbolAtLine(text.Lines.Count)).IsNull();
+        for (var index = 0; index < count; index++)
+        {
+            var declaration = surface.Declarations[index];
+            await Assert.That(surface.SymbolAtLine(index * LinesPerDeclaration)).IsEqualTo(symbol);
+            await Assert.That(surface.SymbolAtLine((index * LinesPerDeclaration) + 1)).IsNull();
+            await Assert.That(declaration.StartLine).IsEqualTo(index * LinesPerDeclaration);
+            await Assert.That(text.ToString(declaration.Span)).IsEqualTo(TypeHeader);
+        }
+
+        if (count != 0)
+        {
+            return;
+        }
+
+        await Assert.That(surface.Text).IsEmpty();
+        await Assert.That(surface.SymbolAtLine(0)).IsNull();
+    }
+
+    /// <summary>Checks all mapped and unmapped lines against independently selected source symbols.</summary>
+    /// <param name="surface">The rendered surface.</param>
+    /// <param name="symbols">All source declarations expected in the surface.</param>
+    /// <param name="assemblyAttributes">The expected assembly-attribute count.</param>
+    /// <returns>A task representing the asynchronous verification.</returns>
+    private static async Task AssertCompleteLineMapAsync(RenderedApiSurface surface, ISymbol[] symbols, int assemblyAttributes)
+    {
+        var text = SourceText.From(surface.Text);
+        var parsed = ApiTextParser.Parse(text, CancellationToken.None);
+        await Assert.That(parsed.Success).IsTrue();
+        await Assert.That(parsed.Declarations.Length).IsEqualTo(symbols.Length + assemblyAttributes);
+        var expected = new ISymbol?[text.Lines.Count];
+        foreach (var symbol in symbols)
+        {
+            var identity = ApiIdentity.Of(symbol);
+            var declaration = parsed.Declarations.Single(item => string.Equals(item.Identity, identity, StringComparison.Ordinal));
+            expected[declaration.StartLine] = symbol;
+            var signatureEnd = declaration.Span.End;
+            while (char.IsWhiteSpace(text[signatureEnd - 1]))
+            {
+                signatureEnd--;
+            }
+
+            expected[text.Lines.GetLineFromPosition(signatureEnd - 1).LineNumber] = symbol;
+        }
+
+        for (var line = 0; line < expected.Length; line++)
+        {
+            await Assert.That(surface.SymbolAtLine(line)).IsEqualTo(expected[line]);
+        }
+
+        await Assert.That(surface.SymbolAtLine(-1)).IsNull();
+        await Assert.That(surface.SymbolAtLine(text.Lines.Count)).IsNull();
+        await Assert.That(surface.SymbolAtLine(int.MaxValue)).IsNull();
+    }
 }

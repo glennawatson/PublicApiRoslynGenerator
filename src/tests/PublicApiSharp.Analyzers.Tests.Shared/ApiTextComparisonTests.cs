@@ -138,6 +138,179 @@ public class ApiTextComparisonTests
         await Assert.That(diagnostics).IsEmpty();
     }
 
+    /// <summary>Verifies boundary whitespace and significant interior changes agree with full comparison.</summary>
+    /// <param name="baseline">The baseline with an edge-case text representation.</param>
+    /// <param name="matches">Whether the text shortcut should accept it.</param>
+    /// <param name="count">The diagnostic count implied by the full comparison.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments($"﻿{Baseline}", false, 0)]
+    [Arguments("public static class C\r\n{\n    public const int A = 1;\r\n    public const int B = 2;\n}", true, 0)]
+    [Arguments("public static class C\r{\r    public const int A = 1;\r    public const int B = 2;\r}", false, 0)]
+    [Arguments("\tpublic static class C \t\n{\t\n\tpublic const int A = 1; \t\n\tpublic const int B = 2;\t\n}\t", true, 0)]
+    [Arguments("public static class C\n{\n    public const int A = 1;\n    public const int B = 2;\n}", true, 0)]
+    [Arguments("", false, 3)]
+    [Arguments(" \t\r\n\u00a0\u2003\u0085\u2028\u2029", false, 3)]
+    [Arguments("public static class C\n{\n    public const int A  = 1;\n    public const int B = 2;\n}\n", false, 1)]
+    public async Task BaselineTextEdgesAgreeWithFullComparisonAsync(string baseline, bool matches, int count)
+    {
+        var compilation = ApiSurfaceTestHost.Compile(Source);
+        await Assert.That(ApiTextComparison.Matches(SourceText.From(baseline), Baseline)).IsEqualTo(matches);
+        await AssertFullComparisonAsync(compilation, SourceText.From(baseline), count);
+    }
+
+    /// <summary>Verifies each Unicode whitespace character is ignored at line ends but retained inside declarations.</summary>
+    /// <param name="whitespace">The Unicode whitespace under comparison.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("\u00a0")]
+    [Arguments("\u2003")]
+    [Arguments("\u0085")]
+    [Arguments("\u2028")]
+    [Arguments("\u2029")]
+    public async Task UnicodeWhitespacePreservesInteriorDifferencesAsync(string whitespace)
+    {
+        var compilation = ApiSurfaceTestHost.Compile(Source);
+        var trailing = Baseline.Replace("\n", $"{whitespace}\n", StringComparison.Ordinal);
+        var interior = Baseline.Replace("A = 1", $"A{whitespace}= 1", StringComparison.Ordinal);
+
+        await Assert.That(ApiTextComparison.Matches(SourceText.From(trailing), Baseline)).IsTrue();
+        await Assert.That(ApiTextComparison.Matches(SourceText.From(interior), Baseline)).IsFalse();
+        await AssertFullComparisonAsync(compilation, SourceText.From(trailing), 0);
+        await AssertFullComparisonAsync(compilation, SourceText.From(interior), 1);
+    }
+
+    /// <summary>Verifies a UTF-8 preamble is decoded before comparison and does not cause diagnostics.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task Utf8BaselinePreambleDoesNotChangeTheSurfaceAsync()
+    {
+        await using var stream = new MemoryStream();
+        var encoding = new UTF8Encoding(true);
+        stream.Write(encoding.GetPreamble());
+        stream.Write(encoding.GetBytes(Baseline));
+        stream.Position = 0;
+        var text = SourceText.From(stream, encoding);
+
+        await Assert.That(text.ToString()).IsEqualTo(Baseline);
+        await Assert.That(ApiTextComparison.Matches(text, Baseline)).IsTrue();
+        await AssertFullComparisonAsync(ApiSurfaceTestHost.Compile(Source), text, 0);
+    }
+
+    /// <summary>Verifies empty and whitespace-only baselines compare cleanly with an empty surface.</summary>
+    /// <param name="baseline">An empty representation of the baseline.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("")]
+    [Arguments(" \t\r\n\u00a0\u2003\u0085\u2028\u2029")]
+    public async Task EmptyBaselineMatchesAnEmptyPublicSurfaceAsync(string baseline)
+    {
+        var compilation = ApiSurfaceTestHost.Compile("internal class Hidden { }");
+        await Assert.That(ApiTextComparison.Matches(SourceText.From(baseline), string.Empty)).IsTrue();
+        await AssertFullComparisonAsync(compilation, SourceText.From(baseline), 0);
+    }
+
+    /// <summary>Verifies the shortcut checks thousands of declarations through the last line.</summary>
+    /// <param name="changeLastLine">Whether the final declaration differs.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task LargeSurfaceComparisonReachesTheLastDeclarationAsync(bool changeLastLine)
+    {
+        const int Count = 3000;
+        var builder = new PooledStringBuilder();
+        for (var index = 0; index < Count; index++)
+        {
+            _ = builder.Append("public delegate void D").Append(index).Append("();\n");
+        }
+
+        var compilation = ApiSurfaceTestHost.Compile(builder.ToString());
+        var surface = ApiSurfaceRenderer.Render(compilation, ApiRenderOptions.Default, CancellationToken.None);
+        var lines = surface.Text.TrimEnd().Split('\n');
+        var lastLine = lines[^1];
+        var baseline = changeLastLine
+            ? $"{surface.Text[..(surface.Text.Length - lastLine.Length - 1)]}{lastLine.Replace("void", "int", StringComparison.Ordinal)}\n"
+            : surface.Text;
+
+        await Assert.That(surface.Declarations.Length).IsEqualTo(Count);
+        await Assert.That(ApiTextComparison.Matches(SourceText.From(baseline), surface.Text)).IsEqualTo(!changeLastLine);
+        await AssertFullComparisonAsync(compilation, SourceText.From(baseline), changeLastLine ? 1 : 0);
+    }
+
+    /// <summary>Derives complete diagnostics from parsed declarations independently of the shortcut.</summary>
+    /// <param name="compilation">The source compilation.</param>
+    /// <param name="baseline">The baseline text.</param>
+    /// <param name="count">The independently expected number of diagnostics.</param>
+    /// <returns>A task representing the asynchronous verification.</returns>
+    internal static async Task AssertFullComparisonAsync(Compilation compilation, SourceText baseline, int count)
+    {
+        var surface = ApiSurfaceRenderer.Render(compilation, ApiRenderOptions.Default, CancellationToken.None);
+        var parsed = ApiTextParser.Parse(baseline, CancellationToken.None);
+        var file = new MemoryBaseline(baseline);
+        var expected = new List<Diagnostic>();
+        if (!parsed.Success)
+        {
+            expected.Add(Diagnostic.Create(
+                PublicApiRules.UnreadableBaseline,
+                PublicApiBaselineAnalyzer.BaselineLocation(file, baseline, parsed.ErrorSpan),
+                parsed.Error));
+        }
+        else
+        {
+            var comparison = ApiComparisonState.Create(surface, parsed, CancellationToken.None);
+            foreach (var (symbol, current) in comparison.DeclarationsBySymbol)
+            {
+                if (!comparison.BaselineByIdentity.TryGetValue(current.Identity, out var previous))
+                {
+                    expected.Add(Diagnostic.Create(
+                        PublicApiRules.Added,
+                        PublicApiBaselineAnalyzer.SymbolLocation(symbol),
+                        PublicApiBaselineAnalyzer.FinalLine(current.Text)));
+                }
+                else if (!string.Equals(previous.Text, current.Text, StringComparison.Ordinal))
+                {
+                    expected.Add(Diagnostic.Create(
+                        PublicApiRules.Changed,
+                        PublicApiBaselineAnalyzer.SymbolLocation(symbol),
+                        PublicApiBaselineAnalyzer.FinalLine(current.Text),
+                        previous.Text.Replace('\n', ' '),
+                        current.Text.Replace('\n', ' ')));
+                }
+            }
+
+            foreach (var (identity, previous) in comparison.BaselineByIdentity)
+            {
+                if (!comparison.ContainsCurrentIdentity(identity))
+                {
+                    expected.Add(Diagnostic.Create(
+                        PublicApiRules.Removed,
+                        PublicApiBaselineAnalyzer.BaselineLocation(file, baseline, previous.Span),
+                        previous.Text.Replace('\n', ' ')));
+                }
+            }
+        }
+
+        await Assert.That(expected).Count().IsEqualTo(count);
+        var actual = await compilation.WithAnalyzers([new PublicApiBaselineAnalyzer()], new AnalyzerOptions([file]))
+            .GetAnalyzerDiagnosticsAsync();
+        await Assert.That(DiagnosticMessages(actual)).IsEquivalentTo(DiagnosticMessages(expected));
+    }
+
+    /// <summary>Retains diagnostic identifiers, messages and locations for comparison.</summary>
+    /// <param name="diagnostics">The diagnostics to describe.</param>
+    /// <returns>The complete diagnostic descriptions.</returns>
+    private static List<string> DiagnosticMessages(IEnumerable<Diagnostic> diagnostics)
+    {
+        var messages = new List<string>();
+        foreach (var diagnostic in diagnostics)
+        {
+            messages.Add(diagnostic.ToString());
+        }
+
+        return messages;
+    }
+
     /// <summary>Checks matching text against the full comparison and verifies the expected diagnostics.</summary>
     /// <param name="source">The source to compile.</param>
     /// <param name="baseline">The baseline text.</param>

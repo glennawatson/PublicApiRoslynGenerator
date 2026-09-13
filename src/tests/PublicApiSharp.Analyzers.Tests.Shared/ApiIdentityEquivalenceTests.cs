@@ -133,6 +133,56 @@ public class ApiIdentityEquivalenceTests
     /// </remarks>
     private const int ExpectedMinimumChecked = 30;
 
+    /// <summary>Verifies identity keys retain case, generic arity, reference kinds and nullable annotations.</summary>
+    /// <param name="first">The first member declaration.</param>
+    /// <param name="second">The second member declaration.</param>
+    /// <param name="distinct">Whether their identities must differ.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("public int Value;", "public int value;", true)]
+    [Arguments("public void M() { }", "public void M<T>() { }", true)]
+    [Arguments("public void M<T>() { }", "public void M<T, U>() { }", true)]
+    [Arguments("public void M(int value) { }", "public void M(ref int value) { }", true)]
+    [Arguments("public void M(ref int value) { }", "public void M(in int value) { }", true)]
+    [Arguments("public void M(in int value) { }", "public void M(out int value) { value = 0; }", true)]
+    [Arguments("public void M(string value) { }", "public void M(string? value) { }", true)]
+    [Arguments(@"public int \u0056alue;", "public int Value;", false)]
+    public async Task IdentityDistinctionsSurviveRenderingAndParsingAsync(string first, string second, bool distinct)
+    {
+        const int AddedAndRemoved = 2;
+        var firstSurface = ApiSurfaceRenderer.Render(
+            ApiSurfaceTestHost.Compile($"public class C {{ {first} }}"),
+            ApiRenderOptions.Default,
+            CancellationToken.None);
+        var secondCompilation = ApiSurfaceTestHost.Compile($"public class C {{ {second} }}");
+        var secondSurface = ApiSurfaceRenderer.Render(secondCompilation, ApiRenderOptions.Default, CancellationToken.None);
+        var firstMember = firstSurface.Declarations.Single(static item => item.Identity != "C" && item.Identity != "C..ctor()");
+        var secondMember = secondSurface.Declarations.Single(static item => item.Identity != "C" && item.Identity != "C..ctor()");
+        var parsed = ApiTextParser.Parse(SourceText.From(secondSurface.Text), CancellationToken.None);
+
+        await Assert.That(string.Equals(firstMember.Identity, secondMember.Identity, StringComparison.Ordinal)).IsEqualTo(!distinct);
+        await Assert.That(parsed.Success).IsTrue();
+        await Assert.That(parsed.Declarations.Select(static item => item.Identity))
+            .IsEquivalentTo(secondSurface.Declarations.Select(static item => item.Identity));
+        await ApiTextComparisonTests.AssertFullComparisonAsync(secondCompilation, SourceText.From(firstSurface.Text), distinct ? AddedAndRemoved : 0);
+    }
+
+    /// <summary>Verifies escaped baseline identifiers share the symbol key while their spelling remains a text change.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task UnicodeEscapeInBaselineKeepsIdentityButChangesDeclarationTextAsync()
+    {
+        var compilation = ApiSurfaceTestHost.Compile("public static class C { public const int Value = 1; }");
+        var surface = ApiSurfaceRenderer.Render(compilation, ApiRenderOptions.Default, CancellationToken.None);
+        var baseline = surface.Text.Replace("Value", @"\u0056alue", StringComparison.Ordinal);
+        var parsed = ApiTextParser.Parse(SourceText.From(baseline), CancellationToken.None);
+
+        await Assert.That(parsed.Success).IsTrue();
+        await Assert.That(parsed.Declarations.Select(static item => item.Identity))
+            .IsEquivalentTo(surface.Declarations.Select(static item => item.Identity));
+        await ApiTextComparisonTests.AssertFullComparisonAsync(compilation, SourceText.From(baseline), 1);
+    }
+
     /// <summary>Verifies readonly references keep their calling convention in both identity forms.</summary>
     /// <returns>A task representing the asynchronous test operation.</returns>
     [Test]

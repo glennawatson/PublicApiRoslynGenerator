@@ -453,8 +453,8 @@ internal static class ApiSurfaceRenderer
     /// <param name="options">The render options.</param>
     /// <returns><see langword="true"/> when at least one member reaches the surface.</returns>
     /// <remarks>
-    /// The test matches the one <see cref="RenderMembers"/> applies, so a type can never be kept for
-    /// members that are then filtered out of it.
+    /// Includes the signature-name check used when writing a member, so a type is never kept for
+    /// members that cannot be written completely.
     /// </remarks>
     internal static bool DeclaresRenderedMember(INamedTypeSymbol type, ApiRenderOptions options)
     {
@@ -467,7 +467,11 @@ internal static class ApiSurfaceRenderer
                 && ApiSymbolFilter.IsExternallyVisible(member)
                 && (options.IncludeGeneratedCode || !ApiSymbolFilter.IsGeneratedCode(member)))
             {
-                return true;
+                var parameters = ReadParameters(member, out var typeParameters, out _);
+                if (HaveNames(parameters) && HaveNames(typeParameters))
+                {
+                    return true;
+                }
             }
         }
 

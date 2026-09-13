@@ -956,4 +956,49 @@ public class ApiSurfaceRenderingEdgeCaseTests
 
         await Assert.That(rendered).Contains("where T : allows ref struct");
     }
+
+    /// <summary>Verifies member storage cannot leak attributes or declarations between sibling and nested types.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task ReusedMemberListsKeepSiblingAndNestedDeclarationsSeparateAsync()
+    {
+        const string First = """
+            [System.Obsolete]
+            public static class A
+            {
+                [System.CLSCompliant(true)] public const int Alpha = 1;
+                public class Inner
+                {
+                    [System.Obsolete] public int Value { get; set; }
+                    public class Deep { public int Leaf; }
+                }
+                [System.Obsolete] public static void Last() { }
+            }
+            """;
+        const string Second = """
+            [System.CLSCompliant(true)]
+            public static class B
+            {
+                public const int Beta = 2;
+                [System.Obsolete] public class Inner
+                {
+                    [System.CLSCompliant(true)] public int Field;
+                }
+                public static void Last() { }
+            }
+            """;
+        var combined = ApiSurfaceRenderer.Render(ApiSurfaceTestHost.Compile(First + Second), ApiRenderOptions.Default, CancellationToken.None);
+        var expected = new List<(string Identity, string Text)>();
+        foreach (var source in new[] { First, Second })
+        {
+            var separate = ApiSurfaceRenderer.Render(ApiSurfaceTestHost.Compile(source), ApiRenderOptions.Default, CancellationToken.None);
+            expected.AddRange(separate.Declarations.Select(static item => (item.Identity, item.Text)));
+        }
+
+        await Assert.That(combined.Declarations.Select(static item => (item.Identity, item.Text)))
+            .IsEquivalentTo(expected);
+        await Assert.That(combined.Text).IsEqualTo(ApiSurfaceTestHost.Render(Second + First));
+        await Assert.That(ApiTextParser.Parse(Microsoft.CodeAnalysis.Text.SourceText.From(combined.Text), CancellationToken.None).Success).IsTrue();
+        await PublicApiVerifier.AnalyzeAsync(First + Second, combined.Text);
+    }
 }

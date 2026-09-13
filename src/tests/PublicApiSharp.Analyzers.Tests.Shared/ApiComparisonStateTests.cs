@@ -109,6 +109,98 @@ public class ApiComparisonStateTests
         await Assert.That(state.BaselineByIdentity).ContainsKey(ThingIdentity);
     }
 
+    /// <summary>Verifies duplicate member identities retain their first baseline declaration in both index and diagnostics.</summary>
+    /// <param name="firstValue">The first baseline constant value.</param>
+    /// <param name="diagnostics">The expected diagnostic count.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments(1, 0)]
+    [Arguments(2, 1)]
+    public async Task DuplicateMemberIdentityUsesItsFirstBaselineValueAsync(int firstValue, int diagnostics)
+    {
+        const int ParsedCount = 3;
+        const int IndexedCount = 2;
+        const string Snippet = "public static class C { public const int Value = 1; }";
+        var surface = Render(Snippet);
+        var baseline = $"public static class C\n{{\npublic const int Value = {firstValue};\npublic const int Value = 1;\n}}\n";
+        var parsed = ApiTextParser.Parse(SourceText.From(baseline), CancellationToken.None);
+        var state = ApiComparisonState.Create(surface, parsed, CancellationToken.None);
+
+        await Assert.That(parsed.Success).IsTrue();
+        await Assert.That(parsed.Declarations.Length).IsEqualTo(ParsedCount);
+        await Assert.That(state.BaselineByIdentity).Count().IsEqualTo(IndexedCount);
+        await Assert.That(state.BaselineByIdentity["C.Value"].Text).IsEqualTo($"public const int Value = {firstValue};");
+        await ApiTextComparisonTests.AssertFullComparisonAsync(ApiSurfaceTestHost.Compile(Snippet), SourceText.From(baseline), diagnostics);
+    }
+
+    /// <summary>Verifies distinct headers sharing a receiver stay indexed even beside an exact duplicate baseline block.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task SharedReceiverHeadersRetainTheirSeparateComparisonKeysAsync()
+    {
+        const int BlockCount = 3;
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Snippet = """
+            public static class Extensions
+            {
+                extension(string first) { public int First => first.Length; }
+                extension(string second) { public int Second => second.Length; }
+                extension(string third) { public int Third => third.Length; }
+            }
+            """;
+        var compilation = ApiSurfaceTestHost.Compile(Snippet);
+        var surface = Render(Snippet);
+        var baseline = ApiTextParser.Parse(SourceText.From(surface.Text + surface.Text), CancellationToken.None);
+        var state = ApiComparisonState.Create(surface, baseline, CancellationToken.None);
+        var blocks = new List<ApiDeclaration>();
+        var identities = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var declaration in state.BaselineByIdentity.Values)
+        {
+            if (declaration.IsExtensionBlock)
+            {
+                blocks.Add(declaration);
+                _ = identities.Add(declaration.Identity);
+            }
+        }
+
+        await Assert.That(baseline.Success).IsTrue();
+        await Assert.That(blocks).Count().IsEqualTo(BlockCount);
+        await Assert.That(identities).Count().IsEqualTo(1);
+        await Assert.That(state.BaselineByIdentity).Count().IsEqualTo(surface.Declarations.Length);
+        foreach (var declaration in state.DeclarationsBySymbol.Values)
+        {
+            await Assert.That(state.ContainsCurrentIdentity(declaration.Identity)).IsTrue();
+            await Assert.That(state.BaselineByIdentity[declaration.Identity].Text).IsEqualTo(declaration.Text);
+        }
+
+        await ApiTextComparisonTests.AssertFullComparisonAsync(compilation, SourceText.From(surface.Text + surface.Text), 0);
+    }
+
+    /// <summary>Verifies types differing only by case or generic arity occupy distinct comparison entries.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task TypeIdentityKeepsCaseAndGenericArityDistinctAsync()
+    {
+        const string Snippet = "public interface C { } public interface c { } public interface C<T> { } public interface C<T, U> { }";
+        string[] identities = ["C", "c", "C\u00601", "C\u00602"];
+        var surface = Render(Snippet);
+        var parsed = ApiTextParser.Parse(SourceText.From(surface.Text), CancellationToken.None);
+        var comparison = ApiComparisonState.Create(surface, parsed, CancellationToken.None);
+
+        await Assert.That(parsed.Success).IsTrue();
+        await Assert.That(comparison.BaselineByIdentity.Keys).IsEquivalentTo(identities);
+        foreach (var identity in identities)
+        {
+            await Assert.That(comparison.ContainsCurrentIdentity(identity)).IsTrue();
+        }
+
+        await ApiTextComparisonTests.AssertFullComparisonAsync(ApiSurfaceTestHost.Compile(Snippet), SourceText.From(surface.Text), 0);
+    }
+
     /// <summary>Compiles and renders a library.</summary>
     /// <param name="source">The C# source.</param>
     /// <returns>The rendered surface.</returns>

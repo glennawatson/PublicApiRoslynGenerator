@@ -134,6 +134,227 @@ public class ApiSurfaceIncompleteDeclarationTests
         await PublicApiVerifier.AnalyzeAsync(source, rendered);
     }
 
+    /// <summary>Verifies unnamed type signatures disappear, while record constructor omissions preserve complete type headers.</summary>
+    /// <param name="declaration">The declaration whose marked identifier is removed.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("[System.Obsolete] public class MissingName { public int Value; }")]
+    [Arguments("[System.Obsolete] public struct MissingName { public int Value; }")]
+    [Arguments("[System.Obsolete] public interface MissingName { void M(); }")]
+    [Arguments("[System.Obsolete] public enum MissingName { One, Two }")]
+    [Arguments("[System.Obsolete] public record MissingName(int Value);")]
+    [Arguments("[System.Obsolete] public record struct MissingName(int Value);")]
+    [Arguments("[System.Obsolete] public delegate void MissingName(int value);")]
+    [Arguments("[System.Obsolete] public class C<MissingName> { public int Value; }")]
+    [Arguments("[System.Obsolete] public struct C<T, MissingName> { public int Value; }")]
+    [Arguments("[System.Obsolete] public interface C<MissingName> { void M(); }")]
+    [Arguments("[System.Obsolete] public record C<MissingName>(int Value);")]
+    [Arguments("[System.Obsolete] public record struct C<MissingName>(int Value);")]
+    [Arguments("[System.Obsolete] public delegate void D<MissingName>(int value);")]
+    [Arguments("[System.Obsolete] public delegate void D(int MissingName);")]
+    [Arguments("[System.Obsolete] public record C(int MissingName);")]
+    [Arguments("[System.Obsolete] public record struct C(int MissingName);")]
+    public async Task MissingTypeNamesAndSignatureNamesOmitTheWholeDeclarationAsync(string declaration)
+    {
+        var survivingDeclaration = declaration switch
+        {
+            "[System.Obsolete] public record C(int MissingName);" => "[System.Obsolete] public record C;",
+            "[System.Obsolete] public record struct C(int MissingName);" => "[System.Obsolete] public record struct C;",
+            _ => string.Empty,
+        };
+        string[] containers = ["{0}", "public class Outer<T> {{ {0} }}",
+            "public class Outer<T> {{ public class Nested<U> {{ {0} }} }}"];
+        foreach (var container in containers)
+        {
+            var source = string.Format(System.Globalization.CultureInfo.InvariantCulture, container, declaration);
+            var remaining = string.Format(System.Globalization.CultureInfo.InvariantCulture, container, survivingDeclaration);
+            await AssertMissingMarkedNameAsync(source, remaining);
+        }
+    }
+
+    /// <summary>Verifies every named member and callable parameter shape is omitted without its attributes.</summary>
+    /// <param name="declaration">The member whose marked name is missing.</param>
+    /// <param name="remaining">Any constructor marker required after omission.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("[System.Obsolete] public int MissingName;", "")]
+    [Arguments("[System.Obsolete] public event System.Action MissingName;", "")]
+    [Arguments("[System.Obsolete] public event System.Action MissingName { add { } remove { } }", "")]
+    [Arguments("[System.Obsolete] public int MissingName { get; }", "")]
+    [Arguments("[System.Obsolete] public void MissingName() { }", "")]
+    [Arguments("[System.Obsolete] public void M(int MissingName) { }", "")]
+    [Arguments("[System.Obsolete] public void M(int first, int MissingName) { }", "")]
+    [Arguments("[System.Obsolete] public void M<MissingName>() { }", "")]
+    [Arguments("[System.Obsolete] public void M<TMethod, MissingName>() { }", "")]
+    [Arguments("[System.Obsolete] public int this[int MissingName] => 0;", "")]
+    [Arguments("[System.Obsolete] public C(int MissingName) { }", "private C() { }")]
+    [Arguments("[System.Obsolete] public C(int first, int MissingName) { }", "private C() { }")]
+    [Arguments("[System.Obsolete] public static C operator +(C first, C MissingName) => first;", "")]
+    [Arguments("[System.Obsolete] public static implicit operator int(C MissingName) => 0;", "")]
+    [Arguments("[System.Obsolete] public static explicit operator int(C MissingName) => 0;", "")]
+    public async Task MissingMemberNamesAndCallableParametersAreOmittedAsync(string declaration, string remaining)
+    {
+        string[] containers = ["public class C {{ {0} }}", "public class C<T> {{ {0} }}",
+            "public class Outer<T> {{ public class C<U> {{ {0} }} }}"];
+        foreach (var container in containers)
+        {
+            await AssertMissingMarkedNameAsync(
+                string.Format(System.Globalization.CultureInfo.InvariantCulture, container, declaration),
+                string.Format(System.Globalization.CultureInfo.InvariantCulture, container, remaining));
+        }
+    }
+
+    /// <summary>Verifies missing names in extension members cannot leave an attribute or broken declaration behind.</summary>
+    /// <param name="declaration">The extension member with a marked name.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("[System.Obsolete] public int MissingName => 0;")]
+    [Arguments("[System.Obsolete] public void MissingName() { }")]
+    [Arguments("[System.Obsolete] public void M(int MissingName) { }")]
+    [Arguments("[System.Obsolete] public void M<TMethod, MissingName>() { }")]
+    public async Task MissingExtensionMemberNamesAreOmittedAsync(string declaration)
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        await AssertMissingMarkedNameAsync(
+            $"public static class Extensions {{ extension<T>(T receiver) {{ {declaration} }} }}",
+            "public static class Extensions { extension<T>(T receiver) { } }");
+    }
+
+    /// <summary>Verifies missing required type-parameter names suppress a block, while an optional receiver name does not.</summary>
+    /// <param name="header">The incomplete extension header.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("extension<MissingName>(string receiver)")]
+    [Arguments("extension(string MissingName)")]
+    public async Task MissingExtensionHeaderNameOmitsItsMembersAsync(string header)
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        var unnamedReceiver = header == "extension(string MissingName)";
+        await AssertMissingMarkedNameAsync(
+            $"public static class Extensions {{ {header} {{ public int Value => 0; }} }}",
+            unnamedReceiver ? "public static class Extensions { extension(string) { public int Value => 0; } }" : "public static class Extensions { }",
+            unnamedReceiver);
+    }
+
+    /// <summary>Verifies an unnamed enum member does not consume its neighbors or leak its attributes.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    public Task UnnamedEnumMemberLeavesNamedNeighborsIntactAsync() => AssertMissingMarkedNameAsync(
+            "public enum Values { First = 1, [System.Obsolete] MissingName = 2, Last = 3 }",
+            "public enum Values { First = 1, Last = 3 }");
+
+    /// <summary>Verifies an unnamed primary-constructor parameter cannot leave an invalid constructor signature.</summary>
+    /// <param name="source">The primary constructor whose marked parameter name is removed.</param>
+    /// <param name="remaining">The type and constructor accessibility that remain.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("public class C(int MissingName) { }", "public class C { private C() { } }")]
+    [Arguments("public struct C(int MissingName) { }", "public struct C { }")]
+    [Arguments("public class C<T>(int MissingName) { }", "public class C<T> { private C() { } }")]
+    [Arguments("public struct C<T>(int MissingName) { }", "public struct C<T> { }")]
+    [Arguments("public class Outer<T> { public class C<U>(int MissingName) { } }", "public class Outer<T> { public class C<U> { private C() { } } }")]
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    public Task MissingPrimaryConstructorParameterPreservesOnlyTheTypeAsync(string source, string remaining) =>
+        AssertMissingMarkedNameAsync(source, remaining);
+
+    /// <summary>Verifies unnamed variables and explicit implementations do not remove complete neighboring members.</summary>
+    /// <param name="source">The source with a marked member name.</param>
+    /// <param name="remaining">The complete declarations that survive.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("public class C { public int MissingName, KeptField; }", "public class C { public int KeptField; }")]
+    [Arguments("public class C { public event System.Action MissingName, KeptEvent; }", "public class C { public event System.Action KeptEvent; }")]
+    [Arguments("interface I { void M(); } public class C : I { void I.MissingName() { } }", "public class C { }")]
+    [Arguments("interface I { int P { get; } } public class C : I { int I.MissingName => 0; }", "public class C { }")]
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    public Task MissingMemberNamePreservesCompleteNeighborsAsync(string source, string remaining) =>
+        MissingPrimaryConstructorParameterPreservesOnlyTheTypeAsync(source, remaining);
+
+    /// <summary>Verifies an omitted extension method cannot hide complete members that follow it.</summary>
+    /// <param name="member">The extension method with a missing signature name.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("[System.Obsolete] public void M(int MissingName) { }")]
+    [Arguments("[System.Obsolete] public void M<TMethod, MissingName>() { }")]
+    public async Task IncompleteExtensionSignaturePreservesCompleteNeighborAsync(string member)
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Remaining = "public static class Extensions { extension<T>(T receiver) { public T Kept => receiver; } }";
+        await AssertMissingMarkedNameAsync(
+            $"public static class Extensions {{ extension<T>(T receiver) {{ {member} public T Kept => receiver; }} }}",
+            Remaining);
+    }
+
+    /// <summary>Verifies a receiver without a name remains valid for static extension members.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task UnnamedExtensionReceiverRetainsStaticMembersAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = "public static class Extensions { extension(string) { public static int Value => 0; } }";
+        const string Expected = """
+            public static class Extensions
+            {
+                extension(string)
+                {
+                    public static int Value { get; }
+                }
+            }
+
+            """;
+        var rendered = ApiSurfaceTestHost.Render(Source);
+
+        await Assert.That(rendered).IsEqualTo(Expected);
+        await PublicApiVerifier.AnalyzeAsync(Source, rendered);
+    }
+
+    /// <summary>Creates a recovery tree by removing only the marked identifier and checks the complete surviving surface.</summary>
+    /// <param name="source">The source before the marked identifier is removed.</param>
+    /// <param name="remaining">The complete surviving source.</param>
+    /// <param name="remainingHasCompilerErrors">Whether the expected surface retains a binding error unrelated to required signature names.</param>
+    /// <returns>A task representing the asynchronous verification.</returns>
+    private static async Task AssertMissingMarkedNameAsync(string source, string remaining, bool remainingHasCompilerErrors = false)
+    {
+        const string Neighbor = "public interface Kept { void Keep(); } ";
+        var root = await CSharpSyntaxTree.ParseText(source, new(LanguageVersion.Preview)).GetRootAsync();
+        var tokens = new List<SyntaxToken>();
+        foreach (var token in root.DescendantTokens())
+        {
+            if (token.ValueText == "MissingName")
+            {
+                tokens.Add(token);
+            }
+        }
+
+        await Assert.That(tokens).IsNotEmpty();
+        var broken = root.ReplaceTokens(tokens, static (_, _) => SyntaxFactory.MissingToken(default, SyntaxKind.IdentifierToken, default));
+        var compilation = ApiSurfaceTestHost.Compile(Neighbor).AddSyntaxTrees(CSharpSyntaxTree.Create((CSharpSyntaxNode)broken, new(LanguageVersion.Preview)));
+        var rendered = ApiSurfaceRenderer.Render(compilation, ApiRenderOptions.Default, CancellationToken.None).Text;
+
+        var expectedCompilation = remainingHasCompilerErrors ? CompileBroken(Neighbor + remaining) : ApiSurfaceTestHost.Compile(Neighbor + remaining);
+        var expected = ApiSurfaceRenderer.Render(expectedCompilation, ApiRenderOptions.Default, CancellationToken.None).Text;
+        await Assert.That(rendered).IsEqualTo(expected);
+        await Assert.That(CSharpSyntaxTree.ParseText(rendered, new(LanguageVersion.Preview)).GetDiagnostics()).IsEmpty();
+        await Assert.That(ApiTextParser.Parse(SourceText.From(rendered), CancellationToken.None).Success).IsTrue();
+    }
+
     /// <summary>Uses the normal reference set while allowing intentional parser errors in the source.</summary>
     /// <param name="source">The incomplete source.</param>
     /// <returns>The compilation containing the recovery symbols.</returns>
