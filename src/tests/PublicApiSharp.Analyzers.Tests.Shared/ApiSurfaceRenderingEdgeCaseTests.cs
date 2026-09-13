@@ -2,6 +2,10 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+
 namespace PublicApiSharp.Analyzers.Tests;
 
 /// <summary>Rendering cases that only a wide spread of declarations reaches.</summary>
@@ -516,6 +520,68 @@ public class ApiSurfaceRenderingEdgeCaseTests
         ApiSurfaceRenderer.AppendDelegate(builder, thing!);
 
         await Assert.That(builder.ToString()).EndsWith("Thing;");
+    }
+
+    /// <summary>Verifies the method appender uses its ordinary header for an anonymous function.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task AnonymousFunctionUsesOrdinaryMethodHeaderAsync()
+    {
+        var compilation = ApiSurfaceTestHost.Compile("public class C { public System.Func<int, int> F = value => value; }");
+        var tree = compilation.SyntaxTrees.Single();
+        var root = (CompilationUnitSyntax)await tree.GetRootAsync();
+        var type = (ClassDeclarationSyntax)root.Members[0];
+        var field = (FieldDeclarationSyntax)type.Members[0];
+        var lambda = (SimpleLambdaExpressionSyntax)field.Declaration.Variables[0].Initializer!.Value;
+        var method = (IMethodSymbol)compilation.GetSemanticModel(tree).GetSymbolInfo(lambda).Symbol!;
+        var builder = new PooledStringBuilder();
+
+        await Assert.That(method.MethodKind).IsEqualTo(MethodKind.AnonymousFunction);
+        ApiSurfaceRenderer.AppendMember(builder, method);
+
+        await Assert.That(builder.ToString()).Contains("int (int value) { }");
+    }
+
+    /// <summary>Verifies a standalone type header retains its parameter names and constraints.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task StandaloneTypeHeaderKeepsGenericConstraintsAsync()
+    {
+        var compilation = ApiSurfaceTestHost.Compile("public class C<T> where T : class { }");
+        var type = compilation.GlobalNamespace.GetTypeMembers("C")[0];
+        var builder = new PooledStringBuilder();
+
+        ApiSurfaceRenderer.AppendTypeHeader(builder, type);
+
+        await Assert.That(builder.ToString()).IsEqualTo("public class C<T> where T : class");
+    }
+
+    /// <summary>Verifies a standalone indexer name retains its named parameter.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task StandaloneIndexerNameKeepsItsParameterAsync()
+    {
+        var compilation = ApiSurfaceTestHost.Compile("public class C { public int this[int key] => key; }");
+        var property = (IPropertySymbol)compilation.GlobalNamespace.GetTypeMembers("C")[0].GetMembers("this[]")[0];
+        var builder = new PooledStringBuilder();
+
+        ApiSurfaceRenderer.AppendPropertyName(builder, property);
+
+        await Assert.That(builder.ToString()).IsEqualTo("this[int key]");
+    }
+
+    /// <summary>Verifies a static constructor uses its containing type's name when appended directly.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task StaticConstructorUsesContainingTypeNameAsync()
+    {
+        var compilation = ApiSurfaceTestHost.Compile("public class C { static C() {} }");
+        var method = compilation.GlobalNamespace.GetTypeMembers("C")[0].StaticConstructors[0];
+        var builder = new PooledStringBuilder();
+
+        ApiSurfaceRenderer.AppendMember(builder, method);
+
+        await Assert.That(builder.ToString()).EndsWith("C() { }");
     }
 
     /// <summary>Verifies a type named with a keyword renders in a form that reads back.</summary>

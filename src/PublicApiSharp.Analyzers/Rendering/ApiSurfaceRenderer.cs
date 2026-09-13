@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 namespace PublicApiSharp.Analyzers;
@@ -70,6 +71,21 @@ internal static class ApiSurfaceRenderer
     /// <param name="member">The member.</param>
     internal static void AppendMember(PooledStringBuilder builder, ISymbol member)
     {
+        var parameters = ReadParameters(member, out var typeParameters, out _);
+        AppendMember(builder, member, parameters, typeParameters);
+    }
+
+    /// <summary>Appends a member using the parameter arrays already read for its signature.</summary>
+    /// <param name="builder">The declaration builder.</param>
+    /// <param name="member">The member.</param>
+    /// <param name="parameters">The signature parameters.</param>
+    /// <param name="typeParameters">The signature type parameters.</param>
+    internal static void AppendMember(
+        PooledStringBuilder builder,
+        ISymbol member,
+        ImmutableArray<IParameterSymbol> parameters,
+        ImmutableArray<ITypeParameterSymbol> typeParameters)
+    {
         ApiModifiers.AppendMember(builder, member);
 
         switch (member)
@@ -90,7 +106,7 @@ internal static class ApiSurfaceRenderer
             case IPropertySymbol property:
             {
                 _ = builder.Append(property.Type.ToDisplayString(ApiDisplayFormats.TypeReference)).Append(' ');
-                AppendPropertyName(builder, property);
+                AppendPropertyName(builder, property, parameters);
                 AppendAccessors(builder, property);
                 break;
             }
@@ -104,7 +120,7 @@ internal static class ApiSurfaceRenderer
 
             case IMethodSymbol method:
             {
-                AppendMethod(builder, method);
+                AppendMethod(builder, method, parameters, typeParameters);
                 _ = builder.Append(" { }");
                 break;
             }
@@ -122,10 +138,26 @@ internal static class ApiSurfaceRenderer
     /// <param name="type">The delegate type.</param>
     internal static void AppendDelegate(PooledStringBuilder builder, INamedTypeSymbol type)
     {
+        var parameters = ReadParameters(type, out var typeParameters, out var invoke);
+        AppendDelegate(builder, type, invoke, parameters, typeParameters);
+    }
+
+    /// <summary>Appends a delegate using its already-read invocation signature.</summary>
+    /// <param name="builder">The declaration builder.</param>
+    /// <param name="type">The delegate type.</param>
+    /// <param name="invoke">Its invocation method, when available.</param>
+    /// <param name="parameters">The invocation parameters.</param>
+    /// <param name="typeParameters">The delegate type parameters.</param>
+    internal static void AppendDelegate(
+        PooledStringBuilder builder,
+        INamedTypeSymbol type,
+        IMethodSymbol? invoke,
+        ImmutableArray<IParameterSymbol> parameters,
+        ImmutableArray<ITypeParameterSymbol> typeParameters)
+    {
         // AppendType already ends with the type keyword and a trailing space.
         ApiModifiers.AppendType(builder, type);
 
-        var invoke = type.DelegateInvokeMethod;
         if (invoke is null)
         {
             _ = builder.Append(type.ToDisplayString(ApiDisplayFormats.TypeDeclarationName)).Append(';');
@@ -137,16 +169,27 @@ internal static class ApiSurfaceRenderer
             .Append(' ')
             .Append(type.ToDisplayString(ApiDisplayFormats.TypeDeclarationName))
             .Append('(');
-        AppendParameters(builder, invoke.Parameters);
+        AppendParameters(builder, parameters);
         _ = builder.Append(')');
-        ApiConstraints.Append(builder, type.TypeParameters);
+        ApiConstraints.Append(builder, typeParameters);
         _ = builder.Append(';');
     }
 
     /// <summary>Appends a type's declaration header: modifiers, name, base list and constraints.</summary>
     /// <param name="builder">The builder the surface is being written into.</param>
     /// <param name="type">The type.</param>
-    internal static void AppendTypeHeader(PooledStringBuilder builder, INamedTypeSymbol type)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void AppendTypeHeader(PooledStringBuilder builder, INamedTypeSymbol type) =>
+        AppendTypeHeader(builder, type, type.TypeParameters);
+
+    /// <summary>Appends a type header using the type parameters already read for its signature.</summary>
+    /// <param name="builder">The declaration builder.</param>
+    /// <param name="type">The type.</param>
+    /// <param name="typeParameters">The type parameters.</param>
+    internal static void AppendTypeHeader(
+        PooledStringBuilder builder,
+        INamedTypeSymbol type,
+        ImmutableArray<ITypeParameterSymbol> typeParameters)
     {
         ApiModifiers.AppendType(builder, type);
         _ = builder.Append(type.ToDisplayString(ApiDisplayFormats.TypeDeclarationName));
@@ -163,7 +206,7 @@ internal static class ApiSurfaceRenderer
         }
 
         AppendBaseList(builder, type);
-        ApiConstraints.Append(builder, type.TypeParameters);
+        ApiConstraints.Append(builder, typeParameters);
     }
 
     /// <summary>Renders one namespace and the types it declares.</summary>
@@ -328,13 +371,19 @@ internal static class ApiSurfaceRenderer
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        var parameters = ReadParameters(type, out var typeParameters, out var invoke);
+        if (!HaveNames(parameters) || !HaveNames(typeParameters))
+        {
+            return;
+        }
+
         writer.Pending = type;
         ApiAttributeRenderer.Append(writer.Builder, type.GetAttributes(), indent, string.Empty, options, writer.CountLineCallback);
 
         if (type.TypeKind == TypeKind.Delegate)
         {
             writer.BeginLine(indent);
-            AppendDelegate(writer.Builder, type);
+            AppendDelegate(writer.Builder, type, invoke, parameters, typeParameters);
             writer.EndLine(type);
             return;
         }
@@ -342,11 +391,11 @@ internal static class ApiSurfaceRenderer
         writer.BeginLine(indent);
         if (RoslynFeatures.IsExtensionContainer(type))
         {
-            AppendExtensionHeader(writer.Builder, type);
+            AppendExtensionHeader(writer.Builder, type, typeParameters);
         }
         else
         {
-            AppendTypeHeader(writer.Builder, type);
+            AppendTypeHeader(writer.Builder, type, typeParameters);
         }
 
         writer.EndLine(type);
@@ -397,11 +446,7 @@ internal static class ApiSurfaceRenderer
         foreach (var member in members)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            writer.Pending = member;
-            ApiAttributeRenderer.Append(writer.Builder, member.GetAttributes(), indent, string.Empty, options, writer.CountLineCallback);
-            writer.BeginLine(indent);
-            AppendMember(writer.Builder, member);
-            writer.EndLine(member);
+            RenderMember(writer, member, indent, options);
         }
 
         foreach (var nested in VisibleTypes(type, options))
@@ -463,10 +508,21 @@ internal static class ApiSurfaceRenderer
     /// block's receiver is spelled in terms of those parameters, so a header without the list names
     /// something nothing declares — text C# cannot read back as the surface it was rendered from.
     /// </remarks>
-    internal static void AppendExtensionHeader(PooledStringBuilder builder, INamedTypeSymbol type)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void AppendExtensionHeader(PooledStringBuilder builder, INamedTypeSymbol type) =>
+        AppendExtensionHeader(builder, type, type.TypeParameters);
+
+    /// <summary>Appends an extension header using the type parameters already read for its signature.</summary>
+    /// <param name="builder">The declaration builder.</param>
+    /// <param name="type">The extension container.</param>
+    /// <param name="typeParameters">The type parameters.</param>
+    internal static void AppendExtensionHeader(
+        PooledStringBuilder builder,
+        INamedTypeSymbol type,
+        ImmutableArray<ITypeParameterSymbol> typeParameters)
     {
         _ = builder.Append("extension");
-        AppendTypeParameters(builder, type.TypeParameters);
+        AppendTypeParameters(builder, typeParameters);
         _ = builder.Append('(');
 
         if (RoslynFeatures.ExtensionReceiver(type) is { } receiver)
@@ -475,7 +531,7 @@ internal static class ApiSurfaceRenderer
         }
 
         _ = builder.Append(')');
-        ApiConstraints.Append(builder, type.TypeParameters);
+        ApiConstraints.Append(builder, typeParameters);
     }
 
     /// <summary>Appends a type's base type and directly implemented interfaces.</summary>
@@ -511,7 +567,15 @@ internal static class ApiSurfaceRenderer
     /// <summary>Appends a property's name, or an indexer's parameter list.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="property">The property.</param>
-    internal static void AppendPropertyName(PooledStringBuilder builder, IPropertySymbol property)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void AppendPropertyName(PooledStringBuilder builder, IPropertySymbol property) =>
+        AppendPropertyName(builder, property, property.Parameters);
+
+    /// <summary>Appends a property name using its already-read index parameters.</summary>
+    /// <param name="builder">The declaration builder.</param>
+    /// <param name="property">The property.</param>
+    /// <param name="parameters">The index parameters.</param>
+    internal static void AppendPropertyName(PooledStringBuilder builder, IPropertySymbol property, ImmutableArray<IParameterSymbol> parameters)
     {
         if (!property.IsIndexer)
         {
@@ -520,7 +584,7 @@ internal static class ApiSurfaceRenderer
         }
 
         _ = builder.Append("this[");
-        AppendParameters(builder, property.Parameters);
+        AppendParameters(builder, parameters);
         _ = builder.Append(']');
     }
 
@@ -570,11 +634,17 @@ internal static class ApiSurfaceRenderer
     /// <summary>Appends a method's return type, name, parameters and constraints.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="method">The method.</param>
-    internal static void AppendMethod(PooledStringBuilder builder, IMethodSymbol method)
+    /// <param name="parameters">The signature parameters.</param>
+    /// <param name="typeParameters">The signature type parameters.</param>
+    internal static void AppendMethod(
+        PooledStringBuilder builder,
+        IMethodSymbol method,
+        ImmutableArray<IParameterSymbol> parameters,
+        ImmutableArray<ITypeParameterSymbol> typeParameters)
     {
-        AppendMethodName(builder, method);
+        AppendMethodName(builder, method, typeParameters);
         _ = builder.Append('(');
-        AppendParameters(builder, method.Parameters, method.IsExtensionMethod);
+        AppendParameters(builder, parameters, method.IsExtensionMethod);
         _ = builder.Append(')');
 
         // Constructors and operators cannot carry constraints of their own.
@@ -584,7 +654,7 @@ internal static class ApiSurfaceRenderer
             return;
         }
 
-        ApiConstraints.Append(builder, method.TypeParameters);
+        ApiConstraints.Append(builder, typeParameters);
     }
 
     /// <summary>Appends the <c>checked</c> keyword when the operator is the checked form.</summary>
@@ -648,6 +718,83 @@ internal static class ApiSurfaceRenderer
         _ = builder.Append('>');
     }
 
+    /// <summary>Reads the arrays once for both name validation and signature rendering.</summary>
+    /// <param name="symbol">The declaration being rendered.</param>
+    /// <param name="typeParameters">Its type parameters.</param>
+    /// <param name="invoke">A delegate's invocation method, when present.</param>
+    /// <returns>The declaration's parameter list.</returns>
+    private static ImmutableArray<IParameterSymbol> ReadParameters(
+        ISymbol symbol,
+        out ImmutableArray<ITypeParameterSymbol> typeParameters,
+        out IMethodSymbol? invoke)
+    {
+        typeParameters = ImmutableArray<ITypeParameterSymbol>.Empty;
+        invoke = null;
+        switch (symbol)
+        {
+            case IMethodSymbol method:
+            {
+                typeParameters = method.TypeParameters;
+                return method.Parameters;
+            }
+
+            case IPropertySymbol property:
+            {
+                return property.Parameters;
+            }
+
+            case INamedTypeSymbol type:
+            {
+                typeParameters = type.TypeParameters;
+                invoke = type.DelegateInvokeMethod;
+                return invoke is null ? ImmutableArray<IParameterSymbol>.Empty : invoke.Parameters;
+            }
+
+            default:
+            {
+                return ImmutableArray<IParameterSymbol>.Empty;
+            }
+        }
+    }
+
+    /// <summary>Writes a member and its attributes only when its signature has every required name.</summary>
+    /// <param name="writer">The surface writer.</param>
+    /// <param name="member">The member.</param>
+    /// <param name="indent">The declaration indentation.</param>
+    /// <param name="options">The render options.</param>
+    private static void RenderMember(SurfaceWriter writer, ISymbol member, string indent, ApiRenderOptions options)
+    {
+        var parameters = ReadParameters(member, out var typeParameters, out _);
+        if (!HaveNames(parameters) || !HaveNames(typeParameters))
+        {
+            return;
+        }
+
+        writer.Pending = member;
+        ApiAttributeRenderer.Append(writer.Builder, member.GetAttributes(), indent, string.Empty, options, writer.CountLineCallback);
+        writer.BeginLine(indent);
+        AppendMember(writer.Builder, member, parameters, typeParameters);
+        writer.EndLine(member);
+    }
+
+    /// <summary>Checks names in arrays already needed to write the declaration.</summary>
+    /// <typeparam name="TSymbol">The parameter symbol kind.</typeparam>
+    /// <param name="symbols">The signature parameters.</param>
+    /// <returns>Whether every parameter has a name.</returns>
+    private static bool HaveNames<TSymbol>(ImmutableArray<TSymbol> symbols)
+        where TSymbol : ISymbol
+    {
+        foreach (var symbol in symbols)
+        {
+            if (symbol.Name.Length == 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>Renders a run of types at one indentation level.</summary>
     /// <param name="writer">The surface writer.</param>
     /// <param name="types">The types.</param>
@@ -708,7 +855,8 @@ internal static class ApiSurfaceRenderer
     /// <summary>Appends the part of a method declaration that precedes its parameter list.</summary>
     /// <param name="builder">The builder.</param>
     /// <param name="method">The method.</param>
-    private static void AppendMethodName(PooledStringBuilder builder, IMethodSymbol method)
+    /// <param name="typeParameters">The signature type parameters.</param>
+    private static void AppendMethodName(PooledStringBuilder builder, IMethodSymbol method, ImmutableArray<ITypeParameterSymbol> typeParameters)
     {
         switch (method.MethodKind)
         {
@@ -740,7 +888,7 @@ internal static class ApiSurfaceRenderer
                 _ = builder
                     .Append(method.ReturnsVoid ? "void" : method.ReturnType.ToDisplayString(ApiDisplayFormats.TypeReference))
                     .Append(' ').Append(ApiLiterals.Identifier(method.Name));
-                AppendTypeParameters(builder, method.TypeParameters);
+                AppendTypeParameters(builder, typeParameters);
                 break;
             }
         }

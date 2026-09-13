@@ -4,13 +4,65 @@
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
 namespace PublicApiSharp.Analyzers.Tests;
 
 /// <summary>Verifies missing declaration names cannot make the rendered baseline unreadable.</summary>
-public class ApiSymbolFilterTests
+public class ApiSurfaceIncompleteDeclarationTests
 {
+    /// <summary>Verifies an incomplete container cannot expose its otherwise valid descendants.</summary>
+    /// <param name="source">The container and its complete descendants.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("public class C<> { public int Value; public void M() {} public class Nested { } }")]
+    [Arguments("public class C<T,> { public T Value; public class Nested { } }")]
+    public async Task IncompleteContainerOmitsItsDescendantsAsync(string source)
+    {
+        const string Neighbor = "public class Kept { public int Value; } ";
+        var compilation = CompileBroken(Neighbor + source);
+        var rendered = ApiSurfaceRenderer.Render(compilation, ApiRenderOptions.Default, CancellationToken.None).Text;
+
+        await Assert.That(rendered).IsEqualTo(ApiSurfaceTestHost.Render(Neighbor));
+        await Assert.That(ApiTextParser.Parse(SourceText.From(rendered), CancellationToken.None).Success).IsTrue();
+    }
+
+    /// <summary>Verifies a named nested type is omitted when its containing type has no name.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task UnnamedContainerOmitsItsNestedTypeAsync()
+    {
+        const string Neighbor = "public class Kept { public int Value; } ";
+        var root = CSharpSyntaxTree.ParseText("public class Container { public class Nested { public int Value; } }").GetCompilationUnitRoot();
+        var declaration = (ClassDeclarationSyntax)root.Members[0];
+        var broken = root.ReplaceToken(declaration.Identifier, SyntaxFactory.MissingToken(default, SyntaxKind.IdentifierToken, default));
+        var compilation = ApiSurfaceTestHost.Compile(Neighbor).AddSyntaxTrees(CSharpSyntaxTree.Create(broken, new(LanguageVersion.Preview)));
+        var rendered = ApiSurfaceRenderer.Render(compilation, ApiRenderOptions.Default, CancellationToken.None).Text;
+
+        await Assert.That(rendered).IsEqualTo(ApiSurfaceTestHost.Render(Neighbor));
+        await Assert.That(ApiTextParser.Parse(SourceText.From(rendered), CancellationToken.None).Success).IsTrue();
+    }
+
+    /// <summary>Verifies a later missing signature name also omits the declaration and its attributes.</summary>
+    /// <param name="source">An attributed declaration with an incomplete signature.</param>
+    /// <param name="remaining">The surviving declarations.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("public class C { [System.Obsolete] public void M(int value, int) {} }", "public class C { }")]
+    [Arguments("public class C { [System.Obsolete] public void M<T,>() {} }", "public class C { }")]
+    [Arguments("[System.Obsolete] public delegate void D<T,>(int value);", "")]
+    [Arguments("[System.Obsolete] public delegate void D(int value, int);", "")]
+    public async Task IncompleteSignatureOmitsItsAttributesAsync(string source, string remaining)
+    {
+        const string Neighbor = "public class Kept { public int Value; } ";
+        var compilation = CompileBroken(Neighbor + source);
+        var rendered = ApiSurfaceRenderer.Render(compilation, ApiRenderOptions.Default, CancellationToken.None).Text;
+
+        await Assert.That(rendered).IsEqualTo(ApiSurfaceTestHost.Render(Neighbor + remaining));
+        await Assert.That(ApiTextParser.Parse(SourceText.From(rendered), CancellationToken.None).Success).IsTrue();
+    }
+
     /// <summary>Verifies parser recovery declarations are omitted without losing the surrounding surface.</summary>
     /// <param name="source">A declaration with a missing required name.</param>
     /// <param name="remaining">The declarations that still have a complete signature.</param>
