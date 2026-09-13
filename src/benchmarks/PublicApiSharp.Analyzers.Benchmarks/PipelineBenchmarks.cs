@@ -20,6 +20,7 @@ namespace PublicApiSharp.Analyzers.Benchmarks;
 /// includes the per-symbol callbacks the design deliberately keeps cheap.
 /// </remarks>
 [ShortRunJob]
+[MemoryDiagnoser]
 [EventPipeProfiler(EventPipeProfile.GcVerbose)]
 public class PipelineBenchmarks
 {
@@ -38,6 +39,9 @@ public class PipelineBenchmarks
     /// <summary>The baseline, parsed, matching the compilation exactly.</summary>
     private ApiTextParseResult _baseline = null!;
 
+    /// <summary>The parsed baseline missing one property.</summary>
+    private ApiTextParseResult _violatingBaseline = null!;
+
     /// <summary>The declarations the comparison indexes.</summary>
     private ImmutableArray<ApiDeclaration> _declarations;
 
@@ -47,8 +51,8 @@ public class PipelineBenchmarks
     /// <summary>The baseline's text.</summary>
     private SourceText _baselineText = null!;
 
-    /// <summary>The analyzer under a real Roslyn driver.</summary>
-    private CompilationWithAnalyzers _driver = null!;
+    /// <summary>A baseline missing exactly one property.</summary>
+    private ImmutableArray<AdditionalText> _violatingFiles;
 
     /// <summary>A symbol to locate a diagnostic against.</summary>
     private ISymbol _symbol = null!;
@@ -69,24 +73,27 @@ public class PipelineBenchmarks
         _symbol = BenchmarkWorkload.Type(_compilation, "Sample.Thing0");
         _additionalFiles = [new InMemoryAdditionalText(PublicApiBaselineAnalyzer.BaselineFileName, _baselineText)];
 
-        _driver = CreateDriver();
+        _violatingFiles = [new InMemoryAdditionalText(
+            PublicApiBaselineAnalyzer.BaselineFileName,
+            SourceText.From(BenchmarkWorkload.RemoveOneProperty(_surface.Text)))];
+        _violatingBaseline = ApiTextParser.Parse(_violatingFiles[0].GetText(CancellationToken.None)!, CancellationToken.None);
     }
-
-    /// <summary>Gives each iteration a driver that has not already answered.</summary>
-    /// <remarks>
-    /// <see cref="CompilationWithAnalyzers"/> memoizes its diagnostics, so reusing one across
-    /// iterations measures a dictionary lookup — it reported ~120ns for a whole assembly, and was
-    /// faster at a hundred types than at ten. The driver has to be new for the run to be real.
-    /// </remarks>
-    [IterationSetup(Target = nameof(AnalyzeMatchingBaselineAsync))]
-    public void ResetDriver() => _driver = CreateDriver();
 
     /// <summary>Runs the analyzer end to end against a matching baseline: the everyday build cost.</summary>
     /// <returns>The diagnostic count, so the work cannot be optimized away.</returns>
     [Benchmark]
     public async Task<int> AnalyzeMatchingBaselineAsync()
     {
-        var diagnostics = await _driver.GetAnalyzerDiagnosticsAsync(CancellationToken.None).ConfigureAwait(false);
+        var diagnostics = await CreateDriver(_additionalFiles).GetAnalyzerDiagnosticsAsync(CancellationToken.None).ConfigureAwait(false);
+        return diagnostics.Length;
+    }
+
+    /// <summary>Runs a fresh analyzer driver against a baseline missing one property.</summary>
+    /// <returns>The diagnostic count, expected to be one PAS0001.</returns>
+    [Benchmark]
+    public async Task<int> AnalyzeViolatingBaselineAsync()
+    {
+        var diagnostics = await CreateDriver(_violatingFiles).GetAnalyzerDiagnosticsAsync(CancellationToken.None).ConfigureAwait(false);
         return diagnostics.Length;
     }
 
@@ -95,6 +102,12 @@ public class PipelineBenchmarks
     [Benchmark]
     public int CreateComparisonState() =>
         ApiComparisonState.Create(_surface, _baseline, CancellationToken.None)!.BaselineByIdentity.Count;
+
+    /// <summary>Indexes the current surface against a baseline missing one property.</summary>
+    /// <returns>The baseline declaration count.</returns>
+    [Benchmark]
+    public int CreateViolatingComparisonState() =>
+        ApiComparisonState.Create(_surface, _violatingBaseline, CancellationToken.None).BaselineByIdentity.Count;
 
     /// <summary>Renders and compares in one step, as the analyzer's lazy state does.</summary>
     /// <returns>The number of indexed declarations, so the work cannot be optimized away.</returns>
@@ -158,12 +171,13 @@ public class PipelineBenchmarks
     }
 
     /// <summary>Builds a fresh analyzer driver over the benchmark compilation.</summary>
+    /// <param name="files">The matching or violating baseline.</param>
     /// <returns>The driver.</returns>
-    private CompilationWithAnalyzers CreateDriver()
+    private CompilationWithAnalyzers CreateDriver(ImmutableArray<AdditionalText> files)
     {
         // The overload taking a cancellation token is obsolete, and the one taking bare analyzer
         // options wants one; this third form asks for neither.
-        AnalyzerOptions analyzerOptions = new(_additionalFiles);
+        AnalyzerOptions analyzerOptions = new(files);
         CompilationWithAnalyzersOptions analysisOptions = new(
             analyzerOptions,
             onAnalyzerException: null,

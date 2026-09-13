@@ -7,6 +7,7 @@ using System.Text;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace PublicApiSharp.Analyzers.Benchmarks;
@@ -45,6 +46,11 @@ internal static class BenchmarkWorkload
         }
 
         public delegate TResult Transform<in TInput, out TResult>(TInput input) where TInput : notnull;
+
+        public class Box<T> where T : class
+        {
+            public T? Value { get; }
+        }
 
         public enum Severity : byte
         {
@@ -136,6 +142,11 @@ internal static class BenchmarkWorkload
             void IShape.Draw() { }
         }
 
+        """;
+
+    /// <summary>Source requiring the extension-block syntax available from Roslyn 5.3.</summary>
+    private const string ExtensionSource = """
+
         public static class Helpers
         {
             extension<TShape>(TShape shape)
@@ -183,7 +194,26 @@ internal static class BenchmarkWorkload
 
     /// <summary>Compiles one assembly declaring every construct the renderer has a path for.</summary>
     /// <returns>The compilation.</returns>
-    internal static CSharpCompilation Broad() => Compile(BroadSource);
+    internal static CSharpCompilation Broad() =>
+        Compile(RoslynFeatures.SupportsExtensionBlocks ? $"{BroadSource}\n{ExtensionSource}" : BroadSource);
+
+    /// <summary>Removes one property while preserving the rest of a rendered baseline.</summary>
+    /// <param name="text">The matching baseline.</param>
+    /// <returns>A baseline producing one added-property diagnostic.</returns>
+    /// <exception cref="InvalidOperationException">The baseline has no property.</exception>
+    internal static string RemoveOneProperty(string text)
+    {
+        var root = CSharpSyntaxTree.ParseText(text).GetRoot();
+        foreach (var node in root.DescendantNodes())
+        {
+            if (node is PropertyDeclarationSyntax property)
+            {
+                return root.RemoveNode(property, SyntaxRemoveOptions.KeepNoTrivia)!.ToFullString();
+            }
+        }
+
+        throw new InvalidOperationException("The baseline has no property to omit.");
+    }
 
     /// <summary>Compiles source into a benchmark assembly.</summary>
     /// <param name="source">The C# source.</param>

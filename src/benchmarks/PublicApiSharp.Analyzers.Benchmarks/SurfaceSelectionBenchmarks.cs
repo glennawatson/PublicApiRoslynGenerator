@@ -19,9 +19,13 @@ namespace PublicApiSharp.Analyzers.Benchmarks;
 /// so both are executed far more often than anything that writes text.
 /// </remarks>
 [ShortRunJob]
+[MemoryDiagnoser]
 [EventPipeProfiler(EventPipeProfile.GcVerbose)]
 public class SurfaceSelectionBenchmarks
 {
+    /// <summary>Pattern input prepared once so matching does not include constructing its array.</summary>
+    private static readonly string[] UnmatchedPatterns = ["System.Diagnostics.*", "*.InternalUseAttribute"];
+
     /// <summary>The members of a type, unsorted, as the renderer receives them.</summary>
     private ISymbol[] _members = null!;
 
@@ -180,5 +184,5 @@ public class SurfaceSelectionBenchmarks
     /// <summary>Matches a name that fails every pattern, the common case for an unconfigured project.</summary>
     /// <returns>The decision.</returns>
     [Benchmark]
-    public bool MatchNoPattern() => NamePattern.MatchesAny(["System.Diagnostics.*", "*.InternalUseAttribute"], "Sample.WidgetAttribute");
+    public bool MatchNoPattern() => NamePattern.MatchesAny(UnmatchedPatterns, "Sample.WidgetAttribute");
 }

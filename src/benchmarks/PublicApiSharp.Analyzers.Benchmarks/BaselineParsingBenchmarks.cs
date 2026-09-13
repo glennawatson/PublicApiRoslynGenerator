@@ -21,6 +21,7 @@ namespace PublicApiSharp.Analyzers.Benchmarks;
 /// is paid twice per compilation. The identity helpers underneath it run once per declaration.
 /// </remarks>
 [ShortRunJob]
+[MemoryDiagnoser]
 [EventPipeProfiler(EventPipeProfile.GcVerbose)]
 public class BaselineParsingBenchmarks
 {
@@ -36,14 +37,14 @@ public class BaselineParsingBenchmarks
     /// <summary>A rendered surface, as both sides of the comparison see it.</summary>
     private SourceText _surface = null!;
 
+    /// <summary>The valid baseline with one property missing.</summary>
+    private SourceText _violatingSurface = null!;
+
     /// <summary>A method declaration, for the identity helpers.</summary>
     private MethodDeclarationSyntax _method = null!;
 
     /// <summary>A generic type declaration carrying constraint clauses.</summary>
     private TypeDeclarationSyntax _generic = null!;
-
-    /// <summary>An extension block declaration, whose identity is its whole header.</summary>
-    private MemberDeclarationSyntax _extension = null!;
 
     /// <summary>A single parameter, for the per-parameter identity path.</summary>
     private ParameterSyntax _parameter = null!;
@@ -54,15 +55,13 @@ public class BaselineParsingBenchmarks
     {
         var rendered = ApiSurfaceRenderer.Render(BenchmarkWorkload.Broad(), ApiRenderOptions.Default, CancellationToken.None);
         _surface = SourceText.From(rendered.Text);
+        _violatingSurface = SourceText.From(BenchmarkWorkload.RemoveOneProperty(rendered.Text));
 
         CSharpParseOptions parseOptions = new(LanguageVersion.Preview);
         var root = CSharpSyntaxTree.ParseText(_surface, parseOptions).GetRoot();
 
         _method = First<MethodDeclarationSyntax>(root, static node => node.ParameterList.Parameters.Count > 1);
         _generic = First<TypeDeclarationSyntax>(root, static node => node.ConstraintClauses.Count > 0);
-        _extension = First<MemberDeclarationSyntax>(
-            root,
-            static node => node.ToString().StartsWith("extension", StringComparison.Ordinal));
         _parameter = _method.ParameterList.Parameters[0];
     }
 
@@ -70,6 +69,11 @@ public class BaselineParsingBenchmarks
     /// <returns>The declaration count, so the work cannot be optimized away.</returns>
     [Benchmark]
     public int ParseSurface() => ApiTextParser.Parse(_surface, CancellationToken.None).Declarations.Length;
+
+    /// <summary>Parses the valid baseline used to report an added property.</summary>
+    /// <returns>The declaration count.</returns>
+    [Benchmark]
+    public int ParseViolatingSurface() => ApiTextParser.Parse(_violatingSurface, CancellationToken.None).Declarations.Length;
 
     /// <summary>Runs only Roslyn's own parse, to say how much of the round trip is ours to improve.</summary>
     /// <returns>The node count, so the work cannot be optimized away.</returns>
@@ -95,15 +99,6 @@ public class BaselineParsingBenchmarks
         return builder.Count;
     }
 
-    /// <summary>Recognises an extension block and records the members it declares.</summary>
-    /// <returns>Whether the member was an extension block.</returns>
-    [Benchmark]
-    public bool TryVisitExtensionBlock()
-    {
-        var builder = ImmutableArray.CreateBuilder<ApiDeclaration>();
-        return ApiTextParser.TryVisitExtensionBlock(_extension, "Sample.Helpers", builder, _surface, CancellationToken.None);
-    }
-
     /// <summary>Renders a parameter list the way overload identity sees it.</summary>
     /// <returns>The rendered list.</returns>
     [Benchmark]
@@ -118,11 +113,6 @@ public class BaselineParsingBenchmarks
         ApiTextParser.AppendParameterIdentity(builder, _parameter);
         return builder.ToString();
     }
-
-    /// <summary>Renders constraint clauses as the part of an identity that separates two blocks.</summary>
-    /// <returns>The rendered clauses.</returns>
-    [Benchmark]
-    public string Constraints() => ApiTextParser.Constraints(_generic.ConstraintClauses);
 
     /// <summary>Strips the indentation a declaration carries from where it sits in the file.</summary>
     /// <returns>The normalized text.</returns>

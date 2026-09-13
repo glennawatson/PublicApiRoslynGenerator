@@ -5,10 +5,16 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>PublicApiSharp.Analyzers.Benchmarks</RootNamespace>
 
-    <!-- Benchmark the newest slot: it renders the most constructs, so it is the slowest path. -->
-    <MicrosoftCodeAnalysisVersion>5.6.0</MicrosoftCodeAnalysisVersion>
+    <!-- Keep CI on the newest slot; explicit slot builds must load that slot's Roslyn as well. -->
+    <RoslynVersion Condition="'$(RoslynVersion)' == ''">roslyn5.6</RoslynVersion>
+    <MicrosoftCodeAnalysisVersion>$(RoslynVersion.Remove(0, 6)).0</MicrosoftCodeAnalysisVersion>
     <ImplicitUsings>enable</ImplicitUsings>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/*.Roslyn53.cs</DefaultItemExcludes>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(RoslynVersion)' == 'roslyn5.3' Or '$(RoslynVersion)' == 'roslyn5.6'">
+    <Compile Include="**/*.Roslyn53.cs" Exclude="bin/**;obj/**" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" />
@@ -27,19 +33,19 @@
          the other's compilation. Naming the assemblies by path takes the resolution out of its
          hands, and ReferenceOutputAssembly keeps the projects in the build order. -->
     <ProjectReference Include="..\..\PublicApiSharp.Analyzers\PublicApiSharp.Analyzers.csproj"
-                      AdditionalProperties="RoslynVersion=roslyn5.6"
+                      AdditionalProperties="RoslynVersion=$(RoslynVersion)"
                       ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\PublicApiSharp.Analyzers.CodeFixes\PublicApiSharp.Analyzers.CodeFixes.csproj"
-                      AdditionalProperties="RoslynVersion=roslyn5.6"
+                      AdditionalProperties="RoslynVersion=$(RoslynVersion)"
                       ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
     <Reference Include="PublicApiSharp.Analyzers">
-      <HintPath>..\..\PublicApiSharp.Analyzers\bin\roslyn5.6\$(Configuration)\netstandard2.0\PublicApiSharp.Analyzers.dll</HintPath>
+      <HintPath>..\..\PublicApiSharp.Analyzers\bin\$(RoslynVersion)\$(Configuration)\netstandard2.0\PublicApiSharp.Analyzers.dll</HintPath>
     </Reference>
     <Reference Include="PublicApiSharp.Analyzers.CodeFixes">
-      <HintPath>..\..\PublicApiSharp.Analyzers.CodeFixes\bin\roslyn5.6\$(Configuration)\netstandard2.0\PublicApiSharp.Analyzers.CodeFixes.dll</HintPath>
+      <HintPath>..\..\PublicApiSharp.Analyzers.CodeFixes\bin\$(RoslynVersion)\$(Configuration)\netstandard2.0\PublicApiSharp.Analyzers.CodeFixes.dll</HintPath>
     </Reference>
   </ItemGroup>
 

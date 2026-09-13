@@ -19,6 +19,7 @@ namespace PublicApiSharp.Analyzers.Benchmarks;
 /// size of the surface.
 /// </remarks>
 [ShortRunJob]
+[MemoryDiagnoser]
 [EventPipeProfiler(EventPipeProfile.GcVerbose)]
 public class RenderingBenchmarks
 {
@@ -30,9 +31,6 @@ public class RenderingBenchmarks
 
     /// <summary>A generic delegate, for the delegate path.</summary>
     private INamedTypeSymbol _delegateType = null!;
-
-    /// <summary>An extension container, whose header is composed by hand.</summary>
-    private INamedTypeSymbol _extension = null!;
 
     /// <summary>A constant field.</summary>
     private IFieldSymbol _constant = null!;
@@ -81,16 +79,6 @@ public class RenderingBenchmarks
             if (member is IPropertySymbol { IsIndexer: true } indexer)
             {
                 _indexer = indexer;
-                break;
-            }
-        }
-
-        var helpers = BenchmarkWorkload.Type(_compilation, "Sample.Helpers");
-        foreach (var nested in helpers.GetTypeMembers())
-        {
-            if (RoslynFeatures.IsExtensionContainer(nested))
-            {
-                _extension = nested;
                 break;
             }
         }
@@ -148,11 +136,6 @@ public class RenderingBenchmarks
     [Benchmark]
     public string AppendBaseList() => Render(builder => ApiSurfaceRenderer.AppendBaseList(builder, _currency));
 
-    /// <summary>Renders an extension block header, which is composed rather than displayed.</summary>
-    /// <returns>The rendered text.</returns>
-    [Benchmark]
-    public string AppendExtensionHeader() => Render(builder => ApiSurfaceRenderer.AppendExtensionHeader(builder, _extension));
-
     /// <summary>Renders a method's type parameter list.</summary>
     /// <returns>The rendered text.</returns>
     [Benchmark]
@@ -191,11 +174,6 @@ public class RenderingBenchmarks
     /// <returns>The number of types, so the work cannot be optimized away.</returns>
     [Benchmark]
     public int VisibleTypes() => ApiSurfaceRenderer.VisibleTypes(_namespace, ApiRenderOptions.Default).Count;
-
-    /// <summary>Builds the key a type orders under within its container.</summary>
-    /// <returns>The sort key.</returns>
-    [Benchmark]
-    public string TypeSortKey() => ApiSurfaceRenderer.TypeSortKey(_extension);
 
     /// <summary>Decides whether the surface can use a file-scoped namespace declaration.</summary>
     /// <returns>The decision.</returns>

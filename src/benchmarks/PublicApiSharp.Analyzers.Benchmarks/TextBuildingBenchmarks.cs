@@ -14,6 +14,7 @@ namespace PublicApiSharp.Analyzers.Benchmarks;
 /// buffer back to the pool — which is why each benchmark constructs its own.
 /// </remarks>
 [ShortRunJob]
+[MemoryDiagnoser]
 [EventPipeProfiler(EventPipeProfile.GcVerbose)]
 public class TextBuildingBenchmarks
 {

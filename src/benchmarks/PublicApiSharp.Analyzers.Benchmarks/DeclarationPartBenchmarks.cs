@@ -18,6 +18,7 @@ namespace PublicApiSharp.Analyzers.Benchmarks;
 /// type, so it is the most frequently executed composition in the renderer.
 /// </remarks>
 [ShortRunJob]
+[MemoryDiagnoser]
 [EventPipeProfiler(EventPipeProfile.GcVerbose)]
 public class DeclarationPartBenchmarks
 {
