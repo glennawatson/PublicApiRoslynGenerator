@@ -2,6 +2,8 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using System.Collections.Immutable;
+
 namespace PublicApiSharp.Analyzers;
 
 /// <summary>Decides what counts as public API surface.</summary>
@@ -54,17 +56,20 @@ internal static class ApiSymbolFilter
     internal static bool IsExternallyVisible(ISymbol symbol)
     {
         // C# models an explicit interface implementation as private, but a consumer reaches it by
-        // casting to the interface, so it is surface whenever its containing type is. Start the walk
-        // at the container to skip the member's own misleading accessibility.
-        var current = ApiModifiers.IsExplicitInterfaceImplementation(symbol) ? symbol.ContainingSymbol : symbol;
+        // casting to the interface, so it is surface whenever its containing type is. Skip only the
+        // member's misleading accessibility: its signature still needs complete declaration names.
+        var skipAccessibility = ApiModifiers.IsExplicitInterfaceImplementation(symbol);
+        var current = symbol;
         while (current is not null && current.Kind != SymbolKind.Namespace)
         {
-            if (current.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Protected
+            if ((!skipAccessibility && current.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Protected
                 or Accessibility.ProtectedOrInternal))
+                || !HasDeclarationNames(current))
             {
                 return false;
             }
 
+            skipAccessibility = false;
             current = current.ContainingSymbol;
         }
 
@@ -105,5 +110,43 @@ internal static class ApiSymbolFilter
                     IsStatic: false,
                 }
                 && member.ContainingType is { TypeKind: TypeKind.Class, IsRecord: false }));
+    }
+
+    /// <summary>Rejects recovery symbols whose declaration or signature is missing a required name.</summary>
+    /// <param name="symbol">The declaration.</param>
+    /// <returns>Whether every name needed to write the declaration is present.</returns>
+    private static bool HasDeclarationNames(ISymbol symbol)
+    {
+        // Parser recovery can produce public symbols with an empty name. They have no surface to
+        // record. CanBeReferencedByName is broader: constructors, operators, indexers and explicit
+        // interface implementations are valid declarations even though it is false for them. An
+        // extension container deliberately has no name: its header is written from its receiver.
+        return (symbol.Name.Length != 0 || (symbol is INamedTypeSymbol container && RoslynFeatures.IsExtensionContainer(container)))
+            && symbol switch
+        {
+            IMethodSymbol method => HaveNames(method.Parameters) && HaveNames(method.TypeParameters),
+            IPropertySymbol property => HaveNames(property.Parameters),
+            INamedTypeSymbol type => HaveNames(type.TypeParameters)
+                && (type.DelegateInvokeMethod is not { } invoke || HaveNames(invoke.Parameters)),
+            _ => true,
+        };
+    }
+
+    /// <summary>Checks the required names in a parameter or type parameter list.</summary>
+    /// <typeparam name="TSymbol">The parameter symbol kind.</typeparam>
+    /// <param name="symbols">The signature's parameters.</param>
+    /// <returns>Whether every parameter has a name.</returns>
+    private static bool HaveNames<TSymbol>(ImmutableArray<TSymbol> symbols)
+        where TSymbol : ISymbol
+    {
+        foreach (var symbol in symbols)
+        {
+            if (symbol.Name.Length == 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
