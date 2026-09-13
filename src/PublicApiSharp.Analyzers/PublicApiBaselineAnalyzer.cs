@@ -78,23 +78,36 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
         context.RegisterCompilationStartAction(OnCompilationStart);
     }
 
-    /// <summary>Runs the two rules that can only be decided once the whole compilation is known.</summary>
+    /// <summary>Reports unreadable baselines and differences without a symbol callback.</summary>
     /// <param name="context">The compilation context.</param>
     /// <param name="state">The shared comparison state.</param>
     /// <param name="baselineFile">The baseline file.</param>
     /// <param name="baselineText">The baseline file's text.</param>
     /// <remarks>
-    /// Both rules need the whole comparison, so it is resolved once here. Nothing is reported
-    /// without it, which happens only when this package rendered a surface it could not read back —
-    /// its own defect rather than anything the consumer can act on.
+    /// A baseline that matches the rendered text has no comparison, so nothing is reported. An unreadable
+    /// baseline is reported here, because a parse error has no symbol to attach to.
     /// </remarks>
     internal static void ReportAtCompilationEnd(
         in CompilationAnalysisContext context,
-        Lazy<ApiComparisonState> state,
+        Lazy<(ApiComparisonState? Comparison, ApiTextParseResult? Error)> state,
         AdditionalText baselineFile,
         SourceText baselineText)
     {
-        var comparison = state.Value;
+        var (comparison, error) = state.Value;
+        if (error is not null)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                PublicApiRules.UnreadableBaseline,
+                BaselineLocation(baselineFile, baselineText, error.ErrorSpan),
+                error.Error));
+            return;
+        }
+
+        if (comparison is null)
+        {
+            return;
+        }
+
         ReportImplicitAdditions(in context, comparison);
         ReportRemoved(in context, comparison, baselineFile, baselineText);
     }
@@ -136,6 +149,11 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
 
     /// <summary>Resolves the baseline once, then wires up the per-symbol and end-of-compilation rules.</summary>
     /// <param name="context">The compilation start context.</param>
+    /// <remarks>
+    /// Rendering the whole surface is compilation-wide work, so it happens once, on first use. A baseline
+    /// that matches the rendered text needs no parse, declarations or index, and every symbol callback
+    /// returns without a lookup.
+    /// </remarks>
     internal static void OnCompilationStart(CompilationStartAnalysisContext context)
     {
         var globalOptions = context.Options.AnalyzerConfigOptionsProvider.GlobalOptions;
@@ -151,31 +169,33 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
         }
 
         var baselineText = baselineFile.GetText(context.CancellationToken);
-        if (baselineText is null || !context.TryGetValue(baselineText, BaselineProvider, out var baselineParse))
+        if (baselineText is null)
         {
             return;
         }
 
-        if (!baselineParse.Success)
-        {
-            context.RegisterCompilationEndAction(endContext => endContext.ReportDiagnostic(Diagnostic.Create(
-                PublicApiRules.UnreadableBaseline,
-                BaselineLocation(baselineFile, baselineText, baselineParse.ErrorSpan),
-                baselineParse.Error)));
-            return;
-        }
+        var state = new Lazy<(ApiComparisonState? Comparison, ApiTextParseResult? Error)>(
+            () =>
+            {
+                var compilation = context.Compilation;
 
-        var compilation = context.Compilation;
+                // Ordinary .editorconfig sections need file-scoped options as well as global settings.
+                var options = ApiRenderOptions.Read(globalOptions, FileScopedOptions(context.Options, compilation));
+                var surface = ApiSurfaceRenderer.Render(compilation, options, CancellationToken.None);
+                if (ApiTextComparison.Matches(baselineText, surface.Text))
+                {
+                    return default;
+                }
 
-        // The global options carry a global config and the MSBuild properties. An ordinary
-        // .editorconfig is sectioned, so its entries only exist against a file: without one of
-        // those to fall back on, everything written in one would be silently ignored.
-        var options = ApiRenderOptions.Read(globalOptions, FileScopedOptions(context.Options, compilation));
+                if (!context.TryGetValue(baselineText, BaselineProvider, out var baselineParse))
+                {
+                    return default;
+                }
 
-        // Rendering the whole surface is compilation-wide work, so it happens once, on first use,
-        // and every symbol callback then costs a dictionary lookup.
-        var state = new Lazy<ApiComparisonState>(
-            () => ApiComparisonState.Create(compilation, baselineParse, options, CancellationToken.None));
+                return baselineParse.Success
+                    ? (ApiComparisonState.Create(surface, baselineParse, CancellationToken.None), null)
+                    : (null, baselineParse);
+            });
 
         context.RegisterSymbolAction(symbolContext => ReportForSymbol(in symbolContext, state), TrackedSymbolKinds);
         context.RegisterCompilationEndAction(
@@ -185,10 +205,10 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
     /// <summary>Reports a symbol that the baseline does not have, or has differently.</summary>
     /// <param name="context">The symbol context.</param>
     /// <param name="state">The shared comparison state.</param>
-    internal static void ReportForSymbol(in SymbolAnalysisContext context, Lazy<ApiComparisonState> state)
+    internal static void ReportForSymbol(in SymbolAnalysisContext context, Lazy<(ApiComparisonState? Comparison, ApiTextParseResult? Error)> state)
     {
-        var comparison = state.Value;
-        if (!comparison.DeclarationsBySymbol.TryGetValue(context.Symbol, out var current))
+        var comparison = state.Value.Comparison;
+        if (comparison is null || !comparison.DeclarationsBySymbol.TryGetValue(context.Symbol, out var current))
         {
             // Not part of the surface, so there is nothing the baseline should be saying about it.
             return;

@@ -45,19 +45,6 @@ internal sealed class ApiComparisonState
     /// <summary>Gets the rendered declaration for each symbol that produced one.</summary>
     internal Dictionary<ISymbol, ApiDeclaration> DeclarationsBySymbol { get; }
 
-    /// <summary>Renders the compilation and pairs it with the parsed baseline.</summary>
-    /// <param name="compilation">The compilation.</param>
-    /// <param name="baseline">The parsed baseline.</param>
-    /// <param name="options">The render options.</param>
-    /// <param name="cancellationToken">A cancellation token.</param>
-    /// <returns>The comparison state.</returns>
-    internal static ApiComparisonState Create(
-        Compilation compilation,
-        ApiTextParseResult baseline,
-        ApiRenderOptions options,
-        CancellationToken cancellationToken) =>
-        Create(ApiSurfaceRenderer.Render(compilation, options, cancellationToken), baseline, cancellationToken);
-
     /// <summary>Builds the comparison from a surface that has already been rendered.</summary>
     /// <param name="surface">The rendered surface.</param>
     /// <param name="baseline">The parsed baseline.</param>

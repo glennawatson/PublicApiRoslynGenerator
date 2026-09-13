@@ -100,7 +100,10 @@ public class PipelineBenchmarks
     /// <returns>The number of indexed declarations, so the work cannot be optimized away.</returns>
     [Benchmark]
     public int CreateComparisonStateFromCompilation() =>
-        ApiComparisonState.Create(_compilation, _baseline, ApiRenderOptions.Default, CancellationToken.None)!
+        ApiComparisonState.Create(
+            ApiSurfaceRenderer.Render(_compilation, ApiRenderOptions.Default, CancellationToken.None),
+            _baseline,
+            CancellationToken.None)
             .BaselineByIdentity.Count;
 
     /// <summary>Indexes declarations by identity, the dictionary every lookup goes through.</summary>
