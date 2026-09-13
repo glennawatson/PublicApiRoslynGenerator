@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for full license information.
 
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -26,9 +27,6 @@ namespace PublicApiSharp.Analyzers.CodeFixes;
 [Shared]
 public sealed class UpdatePublicApiBaselineCodeFixProvider : CodeFixProvider
 {
-    /// <summary>The title shown in the lightbulb, and the equivalence key that groups the fix.</summary>
-    private const string Title = "Update the public API baseline";
-
     /// <inheritdoc/>
     public override ImmutableArray<string> FixableDiagnosticIds { get; } = ImmutableArrays.Of(
         PublicApiRules.AddedId,
@@ -42,12 +40,7 @@ public sealed class UpdatePublicApiBaselineCodeFixProvider : CodeFixProvider
     {
         foreach (var diagnostic in context.Diagnostics)
         {
-            context.RegisterCodeFix(
-                CodeAction.Create(
-                    Title,
-                    cancellationToken => UpdateBaselineAsync(context.Document.Project, cancellationToken),
-                    equivalenceKey: Title),
-                diagnostic);
+            context.RegisterCodeFix(new UpdateBaselineCodeAction(context.Document.Project), diagnostic);
         }
 
         return Task.CompletedTask;
@@ -59,14 +52,14 @@ public sealed class UpdatePublicApiBaselineCodeFixProvider : CodeFixProvider
     /// <returns>The updated solution, or the original when there is nothing to write to.</returns>
     internal static async Task<Solution> UpdateBaselineAsync(Project project, CancellationToken cancellationToken)
     {
-        var compilation = await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
-        if (compilation is null)
+        var baseline = FindBaselineDocument(project);
+        if (baseline is null)
         {
             return project.Solution;
         }
 
-        var baseline = FindBaselineDocument(project);
-        if (baseline is null)
+        var compilation = await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false);
+        if (compilation is null)
         {
             return project.Solution;
         }
@@ -92,17 +85,36 @@ public sealed class UpdatePublicApiBaselineCodeFixProvider : CodeFixProvider
         return null;
     }
 
+    /// <summary>Carries the project until the baseline rewrite is requested.</summary>
+    private sealed class UpdateBaselineCodeAction : CodeAction
+    {
+        /// <summary>The project whose baseline will be rewritten.</summary>
+        private readonly Project _project;
+
+        /// <summary>Initializes a new instance of the <see cref="UpdateBaselineCodeAction"/> class.</summary>
+        /// <param name="project">The project whose baseline will be rewritten.</param>
+        internal UpdateBaselineCodeAction(Project project)
+        {
+            _project = project;
+        }
+
+        /// <inheritdoc/>
+        public override string Title => "Update the public API baseline";
+
+        /// <inheritdoc/>
+        public override string EquivalenceKey => Title;
+
+        /// <inheritdoc/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        protected override Task<Solution?> GetChangedSolutionAsync(CancellationToken cancellationToken) => UpdateBaselineAsync(_project, cancellationToken)!;
+    }
+
     /// <summary>Applies the whole-file rewrite once per project, however many diagnostics ask for it.</summary>
     private sealed class UpdateBaselineFixAllProvider : FixAllProvider
     {
         /// <inheritdoc/>
-        public override Task<CodeAction?> GetFixAsync(FixAllContext fixAllContext)
-        {
-            var project = fixAllContext.Project;
-            return Task.FromResult<CodeAction?>(CodeAction.Create(
-                Title,
-                cancellationToken => UpdateBaselineAsync(project, cancellationToken),
-                equivalenceKey: Title));
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override Task<CodeAction?> GetFixAsync(FixAllContext fixAllContext) =>
+            Task.FromResult<CodeAction?>(new UpdateBaselineCodeAction(fixAllContext.Project));
     }
 }

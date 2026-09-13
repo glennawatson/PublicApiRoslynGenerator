@@ -38,6 +38,53 @@ public class UpdateBaselineWithoutADocumentTests
         await Assert.That(result).IsEqualTo(reloaded.Solution);
     }
 
+    /// <summary>Verifies the missing-baseline gate never requests a compilation.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task ProjectWithoutABaselineIsNotCompiledAsync()
+    {
+        using var workspace = await PublicApiVerifier.CreateWorkspaceAsync();
+        var projectId = ProjectId.CreateNewId();
+        var project = workspace.CurrentSolution
+            .AddProject(projectId, "MissingBaseline", "MissingBaseline", LanguageNames.CSharp)
+            .AddDocument(DocumentId.CreateNewId(projectId), "Thing.cs", SourceText.From("public class Thing { }"))
+            .GetProject(projectId)!;
+        await Assert.That(project.TryGetCompilation(out _)).IsFalse();
+
+        var result = await UpdatePublicApiBaselineCodeFixProvider.UpdateBaselineAsync(project, CancellationToken.None);
+
+        await Assert.That(result).IsSameReferenceAs(project.Solution);
+        await Assert.That(project.TryGetCompilation(out _)).IsFalse();
+    }
+
+    /// <summary>Verifies an existing baseline is preserved when the host cannot compile its language.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task BaselineInAProjectThatCannotCompileIsPreservedAsync()
+    {
+        using var workspace = await PublicApiVerifier.CreateWorkspaceAsync();
+        var projectId = ProjectId.CreateNewId();
+        Solution solution;
+        try
+        {
+            solution = workspace.CurrentSolution.AddProject(projectId, "RetainedBaseline", "RetainedBaseline", NoCompilationLanguage);
+        }
+        catch (NotSupportedException)
+        {
+            await Assert.That(workspace.Services.IsSupported(NoCompilationLanguage)).IsFalse();
+            return;
+        }
+
+        var baselineId = DocumentId.CreateNewId(projectId);
+        var project = solution.AddAdditionalDocument(baselineId, PublicApiVerifier.BaselineFileName, SourceText.From("public class Existing { }"))
+            .GetProject(projectId)!;
+        await Assert.That(project.SupportsCompilation).IsFalse();
+
+        var result = await UpdatePublicApiBaselineCodeFixProvider.UpdateBaselineAsync(project, CancellationToken.None);
+
+        await Assert.That(result).IsSameReferenceAs(project.Solution);
+    }
+
     /// <summary>Verifies a project that cannot produce a compilation is returned unchanged.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>
