@@ -2,6 +2,8 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using System;
+
 namespace PublicApiSharp.Analyzers;
 
 /// <summary>A rendered API surface: its text, plus the symbol each declaration came from.</summary>
@@ -72,27 +74,37 @@ internal sealed class RenderedApiSurface
     /// <returns>The declaration's lines, trimmed, joined by a line feed.</returns>
     private static string Normalize(string text, int start, int end)
     {
-        var builder = new PooledStringBuilder(end - start);
-        var lineStart = start;
-        var first = true;
-
-        while (lineStart <= end)
+        var remaining = text.AsSpan(start, end - start).Trim();
+        if (remaining.IndexOf('\n') < 0)
         {
-            var lineEnd = text.IndexOf('\n', lineStart);
-            if (lineEnd < 0 || lineEnd > end)
+            return remaining.ToString();
+        }
+
+        var builder = new PooledStringBuilder(remaining.Length);
+
+        while (!remaining.IsEmpty)
+        {
+            var lineEnd = remaining.IndexOf('\n');
+            if (lineEnd < 0)
             {
-                lineEnd = end;
+                lineEnd = remaining.Length;
             }
 
-            var line = text.Substring(lineStart, lineEnd - lineStart).Trim();
-            if (line.Length > 0)
+            var line = remaining.Slice(0, lineEnd).Trim();
+            if (!line.IsEmpty)
             {
-                _ = first ? builder : builder.Append('\n');
-                _ = builder.Append(line);
-                first = false;
+                if (builder.Length > 0)
+                {
+                    _ = builder.Append('\n');
+                }
+
+                foreach (var character in line)
+                {
+                    _ = builder.Append(character);
+                }
             }
 
-            lineStart = lineEnd + 1;
+            remaining = remaining.Slice(Math.Min(lineEnd + 1, remaining.Length));
         }
 
         return builder.ToString();
@@ -117,7 +129,7 @@ internal sealed class RenderedApiSurface
                 new TextSpan(written.Start, written.End - written.Start)));
         }
 
-        return builder.ToImmutable();
+        return builder.MoveToImmutable();
     }
 
     /// <summary>One declaration as it was written: where it sits, and what produced it.</summary>
