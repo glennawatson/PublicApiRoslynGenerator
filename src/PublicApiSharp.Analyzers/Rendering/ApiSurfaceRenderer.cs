@@ -50,16 +50,16 @@ internal static class ApiSurfaceRenderer
                 writer.AssemblyAttribute);
         }
 
-        var namespaces = new List<INamespaceSymbol>();
+        var namespaces = new List<KeyValuePair<string, INamespaceSymbol>>();
         CollectNamespaces(compilation.Assembly.GlobalNamespace, namespaces, options, cancellationToken);
-        namespaces.Sort(static (a, b) => string.CompareOrdinal(QualifiedName(a), QualifiedName(b)));
+        namespaces.Sort(static (a, b) => string.CompareOrdinal(a.Key, b.Key));
 
         var fileScoped = UsesFileScopedNamespace(namespaces, options);
 
         foreach (var namespaceSymbol in namespaces)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            RenderNamespace(writer, namespaceSymbol, options, fileScoped, cancellationToken);
+            RenderNamespace(writer, namespaceSymbol.Value, options, fileScoped, cancellationToken);
         }
 
         return writer.Complete();
@@ -216,17 +216,17 @@ internal static class ApiSurfaceRenderer
     /// an assembly that later grows a second namespace reformats its baseline once, which is a real
     /// API change being recorded, not churn.
     /// </remarks>
-    internal static bool UsesFileScopedNamespace(List<INamespaceSymbol> namespaces, ApiRenderOptions options)
+    internal static bool UsesFileScopedNamespace(List<KeyValuePair<string, INamespaceSymbol>> namespaces, ApiRenderOptions options)
     {
         var withTypes = 0;
         foreach (var namespaceSymbol in namespaces)
         {
-            if (VisibleTypes(namespaceSymbol, options).Count == 0)
+            if (VisibleTypes(namespaceSymbol.Value, options).Count == 0)
             {
                 continue;
             }
 
-            if (namespaceSymbol.IsGlobalNamespace)
+            if (namespaceSymbol.Value.IsGlobalNamespace)
             {
                 return false;
             }
@@ -244,18 +244,19 @@ internal static class ApiSurfaceRenderer
     /// <param name="cancellationToken">A cancellation token.</param>
     internal static void CollectNamespaces(
         INamespaceSymbol namespaceSymbol,
-        List<INamespaceSymbol> into,
+        List<KeyValuePair<string, INamespaceSymbol>> into,
         ApiRenderOptions options,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!namespaceSymbol.IsGlobalNamespace && options.IsNamespaceExcluded(QualifiedName(namespaceSymbol)))
+        var name = QualifiedName(namespaceSymbol);
+        if (!namespaceSymbol.IsGlobalNamespace && options.IsNamespaceExcluded(name))
         {
             return;
         }
 
-        into.Add(namespaceSymbol);
+        into.Add(new(name, namespaceSymbol));
 
         foreach (var member in namespaceSymbol.GetNamespaceMembers())
         {

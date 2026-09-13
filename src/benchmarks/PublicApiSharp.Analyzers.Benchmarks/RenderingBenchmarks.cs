@@ -59,7 +59,7 @@ public class RenderingBenchmarks
     private INamespaceSymbol _namespace = null!;
 
     /// <summary>Every namespace in the compilation, for the file-scoped decision.</summary>
-    private List<INamespaceSymbol> _namespaces = null!;
+    private List<KeyValuePair<string, INamespaceSymbol>> _namespaces = null!;
 
     /// <summary>Resolves the symbols each benchmark renders.</summary>
     [GlobalSetup]
@@ -95,7 +95,11 @@ public class RenderingBenchmarks
             }
         }
 
-        _namespaces = [_compilation.Assembly.GlobalNamespace, _namespace];
+        _namespaces =
+        [
+            new(_compilation.Assembly.GlobalNamespace.ToDisplayString(ApiDisplayFormats.QualifiedName), _compilation.Assembly.GlobalNamespace),
+            new(_namespace.ToDisplayString(ApiDisplayFormats.QualifiedName), _namespace),
+        ];
     }
 
     /// <summary>Renders a constant field, the shortest member path.</summary>
@@ -208,7 +212,7 @@ public class RenderingBenchmarks
     [Benchmark]
     public int CollectNamespaces()
     {
-        var into = new List<INamespaceSymbol>();
+        var into = new List<KeyValuePair<string, INamespaceSymbol>>();
         ApiSurfaceRenderer.CollectNamespaces(_compilation.Assembly.GlobalNamespace, into, ApiRenderOptions.Default, CancellationToken.None);
         return into.Count;
     }

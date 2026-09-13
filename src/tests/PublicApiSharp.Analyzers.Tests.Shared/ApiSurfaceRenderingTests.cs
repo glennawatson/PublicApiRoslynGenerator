@@ -10,6 +10,35 @@ namespace PublicApiSharp.Analyzers.Tests;
 /// </summary>
 public class ApiSurfaceRenderingTests
 {
+    /// <summary>Namespace ordering uses unescaped qualified names, including parent and prefix ties.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task NamespacesSortByUnescapedQualifiedNameAsync()
+    {
+        const string Source = """
+                              namespace @class.Z { public interface ILast { } }
+                              namespace A_ { public interface IUnderscore { } }
+                              namespace A.Z { public interface INested { } }
+                              namespace A { public interface IParent { } }
+                              namespace A0 { public interface IDigit { } }
+                              namespace @class { public interface IKeyword { } }
+                              public interface IGlobal { }
+                              """;
+
+        var rendered = ApiSurfaceTestHost.Render(Source);
+        var namespaces = new List<string>();
+        foreach (var line in rendered.Split('\n'))
+        {
+            if (line.StartsWith("namespace ", StringComparison.Ordinal))
+            {
+                namespaces.Add(line);
+            }
+        }
+
+        await Assert.That(string.Join('\n', namespaces)).IsEqualTo("namespace A\nnamespace A.Z\nnamespace A0\nnamespace A_\nnamespace @class\nnamespace @class.Z");
+        await Assert.That(rendered.StartsWith("public interface IGlobal", StringComparison.Ordinal)).IsTrue();
+    }
+
     /// <summary>Verifies a plain class renders with its implicit constructor and its property.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Test]
