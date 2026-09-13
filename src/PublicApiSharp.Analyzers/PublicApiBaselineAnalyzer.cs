@@ -367,7 +367,7 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
         foreach (var declared in comparison.BaselineByIdentity)
         {
             context.CancellationToken.ThrowIfCancellationRequested();
-            if (!comparison.CurrentByIdentity.ContainsKey(declared.Key))
+            if (!comparison.ContainsCurrentIdentity(declared.Key))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     PublicApiRules.Removed,

@@ -153,11 +153,12 @@ public class ApiTextComparisonTests
             var parse = ApiTextParser.Parse(baselineText, CancellationToken.None);
             await Assert.That(parse.Success).IsTrue();
             var comparison = ApiComparisonState.Create(surface, parse, CancellationToken.None);
-            await Assert.That(comparison.CurrentByIdentity.Count).IsEqualTo(comparison.BaselineByIdentity.Count);
-            foreach (var current in comparison.CurrentByIdentity)
+            await Assert.That(surface.Declarations.Length).IsEqualTo(comparison.BaselineByIdentity.Count);
+            foreach (var current in surface.Declarations)
             {
-                await Assert.That(comparison.BaselineByIdentity).ContainsKey(current.Key);
-                await Assert.That(comparison.BaselineByIdentity[current.Key].Text).IsEqualTo(current.Value.Text);
+                await Assert.That(comparison.ContainsCurrentIdentity(current.Identity)).IsTrue();
+                await Assert.That(comparison.BaselineByIdentity).ContainsKey(current.Identity);
+                await Assert.That(comparison.BaselineByIdentity[current.Identity].Text).IsEqualTo(current.Text);
             }
 
             foreach (var declaration in comparison.DeclarationsBySymbol.Values)

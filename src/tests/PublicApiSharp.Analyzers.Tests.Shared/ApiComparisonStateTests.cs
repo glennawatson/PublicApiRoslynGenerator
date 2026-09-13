@@ -33,7 +33,7 @@ public class ApiComparisonStateTests
                                               public class Thing
                                               {
                                               }
-                                              public class Thing
+                                              public struct Thing
                                               {
                                               }
 
@@ -53,7 +53,7 @@ public class ApiComparisonStateTests
 
         var state = ApiComparisonState.Create(surface, baseline, CancellationToken.None);
 
-        await Assert.That(state.CurrentByIdentity).ContainsKey(ThingIdentity);
+        await Assert.That(state.ContainsCurrentIdentity(ThingIdentity)).IsTrue();
         await Assert.That(state.DeclarationsBySymbol).IsNotEmpty();
     }
 
@@ -67,6 +67,45 @@ public class ApiComparisonStateTests
 
         var state = ApiComparisonState.Create(surface, baseline, CancellationToken.None);
 
+        await Assert.That(state.BaselineByIdentity).ContainsKey(ThingIdentity);
+        await Assert.That(state.BaselineByIdentity[ThingIdentity].Text).IsEqualTo("public class Thing");
+    }
+
+    /// <summary>Verifies membership uses identity order even when fields render before earlier-named methods.</summary>
+    /// <param name="identity">The key to find.</param>
+    /// <param name="expected">Whether the surface contains the key.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("C", true)]
+    [Arguments("C.A()", true)]
+    [Arguments("C.Z", true)]
+    [Arguments("", false)]
+    [Arguments("C.B()", false)]
+    [Arguments("Z", false)]
+    [Arguments("c.z", false)]
+    public async Task MembershipUsesOrdinalIdentityOrderAsync(string identity, bool expected)
+    {
+        var surface = Render("public static class C { public static void A() { } public static int Z; }");
+        var baseline = ApiTextParser.Parse(SourceText.From(string.Empty), CancellationToken.None);
+
+        var state = ApiComparisonState.Create(surface, baseline, CancellationToken.None);
+
+        await Assert.That(state.ContainsCurrentIdentity(identity)).IsEqualTo(expected);
+        await Assert.That(state.DeclarationsBySymbol).Count().IsEqualTo(surface.Declarations.Length);
+    }
+
+    /// <summary>Verifies an empty surface has neither current keys nor symbol declarations.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task EmptySurfaceHasNoCurrentIdentityAsync()
+    {
+        var surface = Render("internal class C { }");
+        var baseline = ApiTextParser.Parse(SourceText.From(Source), CancellationToken.None);
+
+        var state = ApiComparisonState.Create(surface, baseline, CancellationToken.None);
+
+        await Assert.That(state.ContainsCurrentIdentity(ThingIdentity)).IsFalse();
+        await Assert.That(state.DeclarationsBySymbol).IsEmpty();
         await Assert.That(state.BaselineByIdentity).ContainsKey(ThingIdentity);
     }
 

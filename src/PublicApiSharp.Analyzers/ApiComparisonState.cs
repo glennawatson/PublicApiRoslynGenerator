@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 namespace PublicApiSharp.Analyzers;
@@ -22,25 +23,25 @@ namespace PublicApiSharp.Analyzers;
 /// </remarks>
 internal sealed class ApiComparisonState
 {
+    /// <summary>Sorted comparison keys used only to test whether a baseline declaration still exists.</summary>
+    private readonly string[] _currentIdentities;
+
     /// <summary>Initializes a new instance of the <see cref="ApiComparisonState"/> class.</summary>
     /// <param name="baselineByIdentity">The baseline's declarations, keyed by identity.</param>
-    /// <param name="currentByIdentity">The rendered surface's declarations, keyed by identity.</param>
+    /// <param name="currentIdentities">The rendered surface's sorted comparison keys.</param>
     /// <param name="declarationsBySymbol">The rendered declaration for each symbol that produced one.</param>
     private ApiComparisonState(
         Dictionary<string, ApiDeclaration> baselineByIdentity,
-        Dictionary<string, ApiDeclaration> currentByIdentity,
+        string[] currentIdentities,
         Dictionary<ISymbol, ApiDeclaration> declarationsBySymbol)
     {
         BaselineByIdentity = baselineByIdentity;
-        CurrentByIdentity = currentByIdentity;
+        _currentIdentities = currentIdentities;
         DeclarationsBySymbol = declarationsBySymbol;
     }
 
     /// <summary>Gets the baseline's declarations, keyed by identity.</summary>
     internal Dictionary<string, ApiDeclaration> BaselineByIdentity { get; }
-
-    /// <summary>Gets the rendered surface's declarations, keyed by identity.</summary>
-    internal Dictionary<string, ApiDeclaration> CurrentByIdentity { get; }
 
     /// <summary>Gets the rendered declaration for each symbol that produced one.</summary>
     internal Dictionary<ISymbol, ApiDeclaration> DeclarationsBySymbol { get; }
@@ -65,8 +66,8 @@ internal sealed class ApiComparisonState
         cancellationToken.ThrowIfCancellationRequested();
 
         var baselineByIdentity = Index(baseline.Declarations);
-        var currentByIdentity = Index(surface.Declarations);
-        var declarationsBySymbol = new Dictionary<ISymbol, ApiDeclaration>(SymbolEqualityComparer.Default);
+        var currentIdentities = IndexIdentities(surface.Declarations);
+        var declarationsBySymbol = new Dictionary<ISymbol, ApiDeclaration>(surface.Declarations.Length, SymbolEqualityComparer.Default);
         foreach (var declaration in surface.Declarations)
         {
             if (surface.SymbolAtLine(declaration.StartLine) is { } symbol)
@@ -74,7 +75,7 @@ internal sealed class ApiComparisonState
                 if (declaration.IsExtensionBlock)
                 {
                     var key = ComparisonIdentity(declaration);
-                    PairExtensionBlock(declaration, key, baselineByIdentity, currentByIdentity);
+                    PairExtensionBlock(declaration, key, baselineByIdentity, currentIdentities);
                     declarationsBySymbol[symbol] = declaration with { Identity = key };
                 }
                 else
@@ -86,7 +87,7 @@ internal sealed class ApiComparisonState
 
         return new(
             baselineByIdentity,
-            currentByIdentity,
+            currentIdentities,
             declarationsBySymbol);
     }
 
@@ -108,6 +109,29 @@ internal sealed class ApiComparisonState
         }
 
         return map;
+    }
+
+    /// <summary>Determines whether a baseline comparison key remains in the rendered surface.</summary>
+    /// <param name="identity">The comparison key, including the full header for an extension block.</param>
+    /// <returns>Whether the current surface contains the key.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal bool ContainsCurrentIdentity(string identity) =>
+        Array.BinarySearch(_currentIdentities, identity, StringComparer.Ordinal) >= 0;
+
+    /// <summary>Collects membership keys without retaining a second declaration lookup.</summary>
+    /// <param name="declarations">The rendered declarations.</param>
+    /// <returns>The comparison keys in ordinal order.</returns>
+    /// <remarks>Render order groups member kinds, so it is not ordinal identity order.</remarks>
+    private static string[] IndexIdentities(ImmutableArray<ApiDeclaration> declarations)
+    {
+        var identities = new string[declarations.Length];
+        for (var index = 0; index < declarations.Length; index++)
+        {
+            identities[index] = ComparisonIdentity(declarations[index]);
+        }
+
+        Array.Sort(identities, StringComparer.Ordinal);
+        return identities;
     }
 
     /// <summary>Distinguishes extension headers without changing the identities of their members.</summary>
@@ -134,7 +158,7 @@ internal sealed class ApiComparisonState
         ApiDeclaration declaration,
         string key,
         Dictionary<string, ApiDeclaration> baseline,
-        Dictionary<string, ApiDeclaration> current)
+        string[] current)
     {
         if (baseline.ContainsKey(key))
         {
@@ -145,7 +169,7 @@ internal sealed class ApiComparisonState
         {
             if (candidate.Value.IsExtensionBlock
                 && string.Equals(candidate.Value.Identity, declaration.Identity, StringComparison.Ordinal)
-                && !current.ContainsKey(candidate.Key))
+                && Array.BinarySearch(current, candidate.Key, StringComparer.Ordinal) < 0)
             {
                 // Re-keying consumes this candidate and prevents a second changed block reusing it.
                 _ = baseline.Remove(candidate.Key);

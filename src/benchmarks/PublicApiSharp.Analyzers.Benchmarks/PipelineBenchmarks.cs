@@ -94,7 +94,7 @@ public class PipelineBenchmarks
     /// <returns>The number of indexed declarations, so the work cannot be optimized away.</returns>
     [Benchmark]
     public int CreateComparisonState() =>
-        ApiComparisonState.Create(_surface, _baseline, CancellationToken.None)!.CurrentByIdentity.Count;
+        ApiComparisonState.Create(_surface, _baseline, CancellationToken.None)!.BaselineByIdentity.Count;
 
     /// <summary>Renders and compares in one step, as the analyzer's lazy state does.</summary>
     /// <returns>The number of indexed declarations, so the work cannot be optimized away.</returns>
