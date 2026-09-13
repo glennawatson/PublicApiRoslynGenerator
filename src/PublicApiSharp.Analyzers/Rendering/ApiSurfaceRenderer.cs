@@ -51,16 +51,15 @@ internal static class ApiSurfaceRenderer
                 writer.AssemblyAttribute);
         }
 
-        var namespaces = new List<KeyValuePair<string, INamespaceSymbol>>();
-        CollectNamespaces(compilation.Assembly.GlobalNamespace, namespaces, options, cancellationToken);
-        namespaces.Sort(static (a, b) => string.CompareOrdinal(a.Key, b.Key));
+        var namespaces = CollectNamespaces(compilation.Assembly.GlobalNamespace, options, cancellationToken);
+        namespaces.Sort(static (a, b) => string.CompareOrdinal(a.Name, b.Name));
 
-        var fileScoped = UsesFileScopedNamespace(namespaces, options);
+        var fileScoped = UsesFileScopedNamespace(namespaces);
 
         foreach (var namespaceSymbol in namespaces)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            RenderNamespace(writer, namespaceSymbol.Value, options, fileScoped, cancellationToken);
+            RenderNamespace(writer, namespaceSymbol, options, fileScoped, cancellationToken);
         }
 
         return writer.Complete();
@@ -211,18 +210,19 @@ internal static class ApiSurfaceRenderer
 
     /// <summary>Renders one namespace and the types it declares.</summary>
     /// <param name="writer">The surface writer.</param>
-    /// <param name="namespaceSymbol">The namespace.</param>
+    /// <param name="namespaceTypes">The namespace and its already filtered types.</param>
     /// <param name="options">The render options.</param>
     /// <param name="fileScoped">Whether the surface uses a file-scoped namespace declaration.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
     internal static void RenderNamespace(
         SurfaceWriter writer,
-        INamespaceSymbol namespaceSymbol,
+        NamespaceTypes namespaceTypes,
         ApiRenderOptions options,
         bool fileScoped,
         CancellationToken cancellationToken)
     {
-        var types = VisibleTypes(namespaceSymbol, options);
+        var namespaceSymbol = namespaceTypes.Symbol;
+        var types = namespaceTypes.Types;
         if (types.Count == 0)
         {
             return;
@@ -250,7 +250,6 @@ internal static class ApiSurfaceRenderer
 
     /// <summary>Decides whether the surface can use a file-scoped namespace declaration.</summary>
     /// <param name="namespaces">Every namespace the assembly declares, including the global one.</param>
-    /// <param name="options">The render options.</param>
     /// <returns><see langword="true"/> when exactly one namespace holds types and none sit at global scope.</returns>
     /// <remarks>
     /// C# permits one file-scoped namespace per file, and it may not be mixed with a block-scoped one
@@ -259,17 +258,17 @@ internal static class ApiSurfaceRenderer
     /// an assembly that later grows a second namespace reformats its baseline once, which is a real
     /// API change being recorded, not churn.
     /// </remarks>
-    internal static bool UsesFileScopedNamespace(List<KeyValuePair<string, INamespaceSymbol>> namespaces, ApiRenderOptions options)
+    internal static bool UsesFileScopedNamespace(List<NamespaceTypes> namespaces)
     {
         var withTypes = 0;
         foreach (var namespaceSymbol in namespaces)
         {
-            if (!HasVisibleTypes(namespaceSymbol.Value, options))
+            if (namespaceSymbol.Types.Count == 0)
             {
                 continue;
             }
 
-            if (namespaceSymbol.Value.IsGlobalNamespace)
+            if (namespaceSymbol.Symbol.IsGlobalNamespace)
             {
                 return false;
             }
@@ -282,29 +281,17 @@ internal static class ApiSurfaceRenderer
 
     /// <summary>Collects every namespace the assembly declares, skipping excluded ones.</summary>
     /// <param name="namespaceSymbol">The namespace to walk.</param>
-    /// <param name="into">The list to add to.</param>
     /// <param name="options">The render options.</param>
     /// <param name="cancellationToken">A cancellation token.</param>
-    internal static void CollectNamespaces(
+    /// <returns>The namespaces and their filtered types, owned by this render.</returns>
+    internal static List<NamespaceTypes> CollectNamespaces(
         INamespaceSymbol namespaceSymbol,
-        List<KeyValuePair<string, INamespaceSymbol>> into,
         ApiRenderOptions options,
         CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var name = QualifiedName(namespaceSymbol);
-        if (!namespaceSymbol.IsGlobalNamespace && options.IsNamespaceExcluded(name))
-        {
-            return;
-        }
-
-        into.Add(new(name, namespaceSymbol));
-
-        foreach (var member in namespaceSymbol.GetNamespaceMembers())
-        {
-            CollectNamespaces(member, into, options, cancellationToken);
-        }
+        var namespaces = new List<NamespaceTypes>();
+        CollectNamespaces(namespaceSymbol, namespaces, options, cancellationToken);
+        return namespaces;
     }
 
     /// <summary>Gets the externally visible types a container declares, in a stable order.</summary>
@@ -332,23 +319,6 @@ internal static class ApiSurfaceRenderer
         });
 
         return types;
-    }
-
-    /// <summary>Checks namespace contents without collecting or sorting types that will not be written here.</summary>
-    /// <param name="container">The namespace or type.</param>
-    /// <param name="options">The render options.</param>
-    /// <returns>Whether any declared type belongs in the surface.</returns>
-    internal static bool HasVisibleTypes(INamespaceOrTypeSymbol container, ApiRenderOptions options)
-    {
-        foreach (var member in container.GetTypeMembers())
-        {
-            if (IsVisibleType(member, options))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>Applies the same type filter to namespace selection and rendering.</summary>
@@ -741,6 +711,33 @@ internal static class ApiSurfaceRenderer
         _ = builder.Append('>');
     }
 
+    /// <summary>Collects namespaces, filtering each namespace's types once.</summary>
+    /// <param name="namespaceSymbol">The namespace to walk.</param>
+    /// <param name="into">The list to add to.</param>
+    /// <param name="options">The render options.</param>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    private static void CollectNamespaces(
+        INamespaceSymbol namespaceSymbol,
+        List<NamespaceTypes> into,
+        ApiRenderOptions options,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var name = QualifiedName(namespaceSymbol);
+        if (!namespaceSymbol.IsGlobalNamespace && options.IsNamespaceExcluded(name))
+        {
+            return;
+        }
+
+        into.Add(new(name, namespaceSymbol, VisibleTypes(namespaceSymbol, options)));
+
+        foreach (var member in namespaceSymbol.GetNamespaceMembers())
+        {
+            CollectNamespaces(member, into, options, cancellationToken);
+        }
+    }
+
     /// <summary>Reads the arrays once for both name validation and signature rendering.</summary>
     /// <param name="symbol">The declaration being rendered.</param>
     /// <param name="typeParameters">Its type parameters.</param>
@@ -1002,7 +999,13 @@ internal static class ApiSurfaceRenderer
         }
     }
 
-    /// <summary>Accumulates the surface text, the symbol behind each line, and the declarations.</summary>
+    /// <summary>A namespace and its types retained only for the current render.</summary>
+    /// <param name="Name">The unescaped qualified name used for ordering.</param>
+    /// <param name="Symbol">The namespace.</param>
+    /// <param name="Types">Its externally visible types, in rendering order.</param>
+    internal readonly record struct NamespaceTypes(string Name, INamespaceSymbol Symbol, List<INamedTypeSymbol> Types);
+
+    /// <summary>Accumulates the surface text and each declaration's symbol and line boundaries.</summary>
     /// <remarks>
     /// The declarations are collected as the text is written rather than parsed back out of it
     /// afterwards. Each one is a span of the document — its attribute lines and its own line — paired
@@ -1013,9 +1016,6 @@ internal static class ApiSurfaceRenderer
     {
         /// <summary>The initial buffer a surface document is built in.</summary>
         private const int DocumentCapacity = 4096;
-
-        /// <summary>The symbol each emitted line belongs to, indexed by line number.</summary>
-        private readonly List<ISymbol?> _symbolsByLine = [];
 
         /// <summary>Where each declaration sits in the document, and what produced it.</summary>
         private readonly List<RenderedApiSurface.Written> _declarations = [];
@@ -1034,6 +1034,9 @@ internal static class ApiSurfaceRenderer
 
         /// <summary>Where in the document the line being written began.</summary>
         private int _lineStart;
+
+        /// <summary>The zero-based line currently being written.</summary>
+        private int _line;
 
         /// <summary>Initializes a new instance of the <see cref="SurfaceWriter"/> class.</summary>
         internal SurfaceWriter() => CountLineCallback = CountLine;
@@ -1068,7 +1071,7 @@ internal static class ApiSurfaceRenderer
 
                 _openSymbol = value;
                 _openStart = Builder.Length;
-                _openLine = _symbolsByLine.Count;
+                _openLine = _line;
             }
         }
 
@@ -1085,7 +1088,7 @@ internal static class ApiSurfaceRenderer
         {
             CloseDeclaration(symbol);
             _ = Builder.Append('\n');
-            _symbolsByLine.Add(_pending ?? symbol);
+            _line++;
             _pending = null;
             _lineStart = Builder.Length;
         }
@@ -1104,7 +1107,7 @@ internal static class ApiSurfaceRenderer
                 return;
             }
 
-            _declarations.Add(new(_openSymbol, null, _openStart, Builder.Length, _openLine));
+            _declarations.Add(new(_openSymbol, null, _openStart, Builder.Length, _openLine, _line));
             _openSymbol = null;
         }
 
@@ -1117,7 +1120,7 @@ internal static class ApiSurfaceRenderer
             _ = Builder.Append(indent).Append(content);
             CloseDeclaration(symbol);
             _ = Builder.Append('\n');
-            _symbolsByLine.Add(_pending ?? symbol);
+            _line++;
             _pending = null;
             _lineStart = Builder.Length;
         }
@@ -1128,7 +1131,7 @@ internal static class ApiSurfaceRenderer
         {
             // The callback fires once the line, terminator included, is already in the buffer, so the
             // entry spans from where that line began up to but not including the terminator.
-            _declarations.Add(new(null, rendered, _lineStart, Builder.Length - 1, _symbolsByLine.Count));
+            _declarations.Add(new(null, rendered, _lineStart, Builder.Length - 1, _line, _line));
             CountLine(rendered);
         }
 
@@ -1136,14 +1139,14 @@ internal static class ApiSurfaceRenderer
         /// <returns>The rendered surface.</returns>
         /// <remarks>Transfers the recorded storage to the surface; the writer must not be used again.</remarks>
         internal RenderedApiSurface Complete() =>
-            new(Builder.ToString(), _symbolsByLine, _declarations);
+            new(Builder.ToString(), _declarations);
 
         /// <summary>Records that a line was written directly to <see cref="Builder"/>.</summary>
         /// <param name="rendered">The attribute the line carries, unused for a declaration's own.</param>
         internal void CountLine(string rendered)
         {
             _ = rendered;
-            _symbolsByLine.Add(_pending);
+            _line++;
             _pending = null;
             _lineStart = Builder.Length;
         }
@@ -1157,7 +1160,7 @@ internal static class ApiSurfaceRenderer
                 return;
             }
 
-            _declarations.Add(new(_openSymbol, null, _openStart, Builder.Length, _openLine));
+            _declarations.Add(new(_openSymbol, null, _openStart, Builder.Length, _openLine, _line));
             _openSymbol = null;
         }
     }

@@ -15,21 +15,19 @@ namespace PublicApiSharp.Analyzers;
 /// </remarks>
 internal sealed class RenderedApiSurface
 {
-    /// <summary>The symbol whose declaration begins at each line, indexed by line number.</summary>
-    private readonly List<ISymbol?> _symbolsByLine;
+    /// <summary>The two halves considered at each binary-search step.</summary>
+    private const int SearchHalves = 2;
 
     /// <summary>Where each declaration sits in the text, and what it was written from.</summary>
     private readonly List<Written> _written;
 
     /// <summary>Initializes a new instance of the <see cref="RenderedApiSurface"/> class.</summary>
     /// <param name="text">The rendered surface text.</param>
-    /// <param name="symbolsByLine">The symbol that starts at each line, indexed by zero-based line number.</param>
     /// <param name="written">Where each declaration sits in the text.</param>
-    /// <remarks>The surface owns both lists; the writer that recorded them hands them over and stops using them.</remarks>
-    internal RenderedApiSurface(string text, List<ISymbol?> symbolsByLine, List<Written> written)
+    /// <remarks>The surface owns the list; the writer that recorded it hands it over and stops using it.</remarks>
+    internal RenderedApiSurface(string text, List<Written> written)
     {
         Text = text;
-        _symbolsByLine = symbolsByLine;
         _written = written;
     }
 
@@ -63,11 +61,33 @@ internal sealed class RenderedApiSurface
         }
     }
 
-    /// <summary>Gets the symbol whose declaration begins at a line, if any.</summary>
+    /// <summary>Gets the symbol at a declaration's first attribute or signature line, if any.</summary>
     /// <param name="line">The zero-based line number.</param>
     /// <returns>The symbol, or <see langword="null"/>.</returns>
-    internal ISymbol? SymbolAtLine(int line) =>
-        line >= 0 && line < _symbolsByLine.Count ? _symbolsByLine[line] : null;
+    internal ISymbol? SymbolAtLine(int line)
+    {
+        var low = 0;
+        var high = _written.Count - 1;
+        while (low <= high)
+        {
+            var middle = low + ((high - low) / SearchHalves);
+            var written = _written[middle];
+            if (line < written.Line)
+            {
+                high = middle - 1;
+            }
+            else if (line > written.SignatureLine)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                return line == written.Line || line == written.SignatureLine ? written.Symbol : null;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>Trims each line of a span the way the parser normalizes a declaration.</summary>
     /// <param name="text">The whole document.</param>
@@ -142,6 +162,7 @@ internal sealed class RenderedApiSurface
     /// <param name="Start">Where the declaration starts in the text.</param>
     /// <param name="End">Where it ends.</param>
     /// <param name="Line">The zero-based line it starts on.</param>
+    /// <param name="SignatureLine">The zero-based signature line, after any attributes.</param>
     /// <remarks>
     /// Holding the symbol rather than a finished identity is what lets the work be skipped when
     /// nobody asks for the declarations.
@@ -151,5 +172,6 @@ internal sealed class RenderedApiSurface
         string? AssemblyAttribute,
         int Start,
         int End,
-        int Line);
+        int Line,
+        int SignatureLine);
 }

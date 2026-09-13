@@ -2,6 +2,9 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Text;
+
 namespace PublicApiSharp.Analyzers.Tests;
 
 /// <summary>Tests the normalized declarations retained from rendered text.</summary>
@@ -124,8 +127,7 @@ public class RenderedApiSurfaceTests
         var text = $"{prefix}{raw}following\n";
         var surface = new RenderedApiSurface(
             text,
-            [],
-            [new(null, "ExampleAttribute", prefix.Length, prefix.Length + raw.Length, 1)]);
+            [new(null, "ExampleAttribute", prefix.Length, prefix.Length + raw.Length, 1, 1)]);
 
         var declarations = surface.Declarations;
 
@@ -143,9 +145,78 @@ public class RenderedApiSurfaceTests
     [Test]
     public async Task EmptySurfaceHasNoDeclarationsAsync()
     {
-        var surface = new RenderedApiSurface(string.Empty, [], []);
+        var surface = new RenderedApiSurface(string.Empty, []);
 
         await Assert.That(surface.Declarations.IsDefault).IsFalse();
         await Assert.That(surface.Declarations).IsEmpty();
+    }
+
+    /// <summary>Verifies attributes map only their first line, while the signature still maps to its symbol.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task AttributedDeclarationMapsItsFirstAndSignatureLinesAsync()
+    {
+        var symbol = ApiSurfaceTestHost.Compile(TypeSource).GetTypeByMetadataName(TypeName)!;
+        var writer = new ApiSurfaceRenderer.SurfaceWriter();
+        writer.Line(string.Empty, "namespace Example;", null);
+        writer.Line(string.Empty, string.Empty, null);
+        writer.Pending = symbol;
+        _ = writer.Builder.Append("[First]\n");
+        writer.CountLine("First");
+        _ = writer.Builder.Append("[Second]\n");
+        writer.CountLine("Second");
+        writer.Line(string.Empty, TypeHeader, symbol);
+        writer.Line(string.Empty, "{", null);
+        writer.Line(string.Empty, "}", null);
+        var surface = writer.Complete();
+
+        ISymbol?[] expected = [null, null, symbol, null, symbol, null, null, null];
+        for (var line = 0; line < expected.Length; line++)
+        {
+            await Assert.That(surface.SymbolAtLine(line)).IsEqualTo(expected[line]);
+        }
+    }
+
+    /// <summary>Verifies rendering retains line mappings for attributed types, members and enum fields.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task RenderedSymbolsMatchAttributeAndSignatureBoundariesAsync()
+    {
+        const string Source = """
+                              [assembly: System.CLSCompliant(true)]
+                              namespace Example;
+                              [System.Obsolete, System.CLSCompliant(true)]
+                              public enum Values
+                              {
+                                  [System.Obsolete, System.CLSCompliant(true)]
+                                  One
+                              }
+                              [System.Obsolete, System.CLSCompliant(true)]
+                              public interface IContract
+                              {
+                                  [System.Obsolete, System.CLSCompliant(true)]
+                                  void Call();
+                              }
+                              """;
+        var compilation = ApiSurfaceTestHost.Compile(Source);
+        var surface = ApiSurfaceRenderer.Render(compilation, ApiRenderOptions.Default, CancellationToken.None);
+        var text = SourceText.From(surface.Text);
+        var parsed = ApiTextParser.Parse(text, CancellationToken.None);
+        var values = compilation.GetTypeByMetadataName("Example.Values")!;
+        var contract = compilation.GetTypeByMetadataName("Example.IContract")!;
+        ISymbol[] symbols = [contract, contract.GetMembers("Call")[0], values, values.GetMembers("One")[0]];
+
+        await Assert.That(parsed.Success).IsTrue();
+        await Assert.That(parsed.Declarations.Length).IsEqualTo(symbols.Length + 1);
+        await Assert.That(surface.SymbolAtLine(0)).IsNull();
+        for (var index = 0; index < symbols.Length; index++)
+        {
+            var declaration = parsed.Declarations[index + 1];
+            var lastLine = text.Lines.GetLineFromPosition(declaration.Span.End - 1).LineNumber;
+            await Assert.That(surface.SymbolAtLine(declaration.StartLine)).IsEqualTo(symbols[index]);
+            await Assert.That(surface.SymbolAtLine(declaration.StartLine + 1)).IsNull();
+            await Assert.That(surface.SymbolAtLine(lastLine)).IsEqualTo(symbols[index]);
+            await Assert.That(surface.SymbolAtLine(lastLine + 1)).IsNull();
+        }
     }
 }

@@ -161,7 +161,7 @@ public class AnalyzerHelperTests
     {
         const int WayPastTheEnd = 9999;
 
-        var surface = new RenderedApiSurface("line\n", [null], []);
+        var surface = new RenderedApiSurface("line\n", []);
 
         await Assert.That(surface.SymbolAtLine(-1)).IsNull();
         await Assert.That(surface.SymbolAtLine(WayPastTheEnd)).IsNull();

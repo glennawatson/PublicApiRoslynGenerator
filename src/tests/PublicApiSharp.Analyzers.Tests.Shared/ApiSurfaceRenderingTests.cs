@@ -71,7 +71,6 @@ public class ApiSurfaceRenderingTests
     {
         var container = ApiSurfaceTestHost.Compile(source).Assembly.GlobalNamespace;
 
-        await Assert.That(ApiSurfaceRenderer.HasVisibleTypes(container, ApiRenderOptions.Default)).IsEqualTo(expected);
         await Assert.That(ApiSurfaceRenderer.VisibleTypes(container, ApiRenderOptions.Default).Count > 0).IsEqualTo(expected);
     }
 
@@ -87,8 +86,38 @@ public class ApiSurfaceRenderingTests
         var container = compilation.GetTypeByMetadataName("Extensions")!;
 
         // The floor cannot parse an extension container; 4.14 exposes its symbol but not baseline syntax.
-        await Assert.That(ApiSurfaceRenderer.HasVisibleTypes(container, ApiRenderOptions.Default)).IsEqualTo(RoslynFeatures.SupportsExtensionBlocks);
         await Assert.That(ApiSurfaceRenderer.VisibleTypes(container, ApiRenderOptions.Default).Count).IsEqualTo(RoslynFeatures.SupportsExtensionBlocks ? 1 : 0);
+    }
+
+    /// <summary>Verifies repeated leaf names have separate storage and namespace selections within each render.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task NamespaceCollectionRetainsTypesForRepeatedLeafNamesAsync()
+    {
+        const int NamespaceCount = 7;
+        const int VisibleNamespaceCount = 2;
+        const string Source = """
+                              namespace A.Shared { public interface IFirst { } }
+                              namespace B.Shared { public interface ISecond { } }
+                              namespace C.Shared { internal interface IHidden { } }
+                              """;
+        var compilation = ApiSurfaceTestHost.Compile(Source);
+        var namespaces = ApiSurfaceRenderer.CollectNamespaces(compilation.Assembly.GlobalNamespace, ApiRenderOptions.Default, CancellationToken.None);
+        namespaces.Sort(static (left, right) => string.CompareOrdinal(left.Name, right.Name));
+        var visible = new List<ApiSurfaceRenderer.NamespaceTypes>(VisibleNamespaceCount);
+        foreach (var entry in namespaces)
+        {
+            if (entry.Types.Count > 0)
+            {
+                visible.Add(entry);
+            }
+        }
+
+        await Assert.That(namespaces.Count).IsEqualTo(NamespaceCount);
+        await Assert.That(visible.Count).IsEqualTo(VisibleNamespaceCount);
+        await Assert.That(visible[0].Types[0].Name).IsEqualTo("IFirst");
+        await Assert.That(visible[1].Types[0].Name).IsEqualTo("ISecond");
+        await Assert.That(ApiSurfaceRenderer.UsesFileScopedNamespace(namespaces)).IsFalse();
     }
 
     /// <summary>Namespace ordering uses unescaped qualified names, including parent and prefix ties.</summary>

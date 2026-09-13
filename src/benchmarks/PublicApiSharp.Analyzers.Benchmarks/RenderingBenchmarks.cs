@@ -59,7 +59,7 @@ public class RenderingBenchmarks
     private INamespaceSymbol _namespace = null!;
 
     /// <summary>Every namespace in the compilation, for the file-scoped decision.</summary>
-    private List<KeyValuePair<string, INamespaceSymbol>> _namespaces = null!;
+    private List<ApiSurfaceRenderer.NamespaceTypes> _namespaces = null!;
 
     /// <summary>Resolves the symbols each benchmark renders.</summary>
     [GlobalSetup]
@@ -95,11 +95,7 @@ public class RenderingBenchmarks
             }
         }
 
-        _namespaces =
-        [
-            new(_compilation.Assembly.GlobalNamespace.ToDisplayString(ApiDisplayFormats.QualifiedName), _compilation.Assembly.GlobalNamespace),
-            new(_namespace.ToDisplayString(ApiDisplayFormats.QualifiedName), _namespace),
-        ];
+        _namespaces = ApiSurfaceRenderer.CollectNamespaces(_compilation.Assembly.GlobalNamespace, ApiRenderOptions.Default, CancellationToken.None);
     }
 
     /// <summary>Renders a constant field, the shortest member path.</summary>
@@ -205,17 +201,13 @@ public class RenderingBenchmarks
     /// <returns>The decision.</returns>
     [Benchmark]
     public bool UsesFileScopedNamespace() =>
-        ApiSurfaceRenderer.UsesFileScopedNamespace(_namespaces, ApiRenderOptions.Default);
+        ApiSurfaceRenderer.UsesFileScopedNamespace(_namespaces);
 
     /// <summary>Walks the assembly's namespaces.</summary>
     /// <returns>The number of namespaces found.</returns>
     [Benchmark]
-    public int CollectNamespaces()
-    {
-        var into = new List<KeyValuePair<string, INamespaceSymbol>>();
-        ApiSurfaceRenderer.CollectNamespaces(_compilation.Assembly.GlobalNamespace, into, ApiRenderOptions.Default, CancellationToken.None);
-        return into.Count;
-    }
+    public int CollectNamespaces() =>
+        ApiSurfaceRenderer.CollectNamespaces(_compilation.Assembly.GlobalNamespace, ApiRenderOptions.Default, CancellationToken.None).Count;
 
     /// <summary>Renders one whole type, header and members.</summary>
     /// <returns>The rendered length, so the work cannot be optimized away.</returns>
@@ -243,7 +235,9 @@ public class RenderingBenchmarks
     public int RenderNamespace()
     {
         var writer = new ApiSurfaceRenderer.SurfaceWriter();
-        ApiSurfaceRenderer.RenderNamespace(writer, _namespace, ApiRenderOptions.Default, fileScoped: true, CancellationToken.None);
+        var types = ApiSurfaceRenderer.VisibleTypes(_namespace, ApiRenderOptions.Default);
+        var namespaceTypes = new ApiSurfaceRenderer.NamespaceTypes(_namespace.Name, _namespace, types);
+        ApiSurfaceRenderer.RenderNamespace(writer, namespaceTypes, ApiRenderOptions.Default, fileScoped: true, CancellationToken.None);
         return writer.Complete().Text.Length;
     }
 
