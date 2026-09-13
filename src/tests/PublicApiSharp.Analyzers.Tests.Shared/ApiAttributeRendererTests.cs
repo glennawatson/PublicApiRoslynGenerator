@@ -55,6 +55,27 @@ public class ApiAttributeRendererTests
         }
     }
 
+    /// <summary>Verifies excluded attributes leave no empty entries among the sorted lines.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task FilteredAttributesSortOnlyIncludedEntriesAsync()
+    {
+        const string Source = """
+                              [System.Obsolete]
+                              [System.Diagnostics.DebuggerStepThrough]
+                              [System.CLSCompliant(true)]
+                              public class C { }
+                              """;
+        var type = ApiSurfaceTestHost.Compile(Source).GetTypeByMetadataName("C")!;
+        var builder = new PooledStringBuilder();
+        var callbacks = new List<string>();
+
+        ApiAttributeRenderer.Append(builder, type.GetAttributes(), string.Empty, string.Empty, ApiRenderOptions.Default, callbacks.Add);
+
+        await Assert.That(builder.ToString()).IsEqualTo("[System.CLSCompliant(true)]\n[System.Obsolete]\n");
+        await Assert.That(string.Join(';', callbacks)).IsEqualTo("System.CLSCompliant(true);System.Obsolete");
+    }
+
     /// <summary>Verifies exact array text and both C# and baseline parsing.</summary>
     /// <param name="source">The declaration carrying the array argument.</param>
     /// <param name="attribute">The expected rendered attribute line.</param>

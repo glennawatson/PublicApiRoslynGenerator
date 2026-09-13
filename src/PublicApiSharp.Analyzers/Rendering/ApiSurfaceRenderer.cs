@@ -264,7 +264,7 @@ internal static class ApiSurfaceRenderer
         var withTypes = 0;
         foreach (var namespaceSymbol in namespaces)
         {
-            if (VisibleTypes(namespaceSymbol.Value, options).Count == 0)
+            if (!HasVisibleTypes(namespaceSymbol.Value, options))
             {
                 continue;
             }
@@ -317,29 +317,7 @@ internal static class ApiSurfaceRenderer
         var types = new List<INamedTypeSymbol>(declared.Length);
         foreach (var member in declared)
         {
-            if (!ApiSymbolFilter.IsExternallyVisible(member))
-            {
-                continue;
-            }
-
-            if (!options.IncludeGeneratedCode && ApiSymbolFilter.IsGeneratedCode(member))
-            {
-                continue;
-            }
-
-            // An extension container whose syntax this host cannot parse must not reach the
-            // baseline: its name is compiler-generated and unspeakable, so the file would not read
-            // back. See RoslynFeatures for which slot gains which half of the feature.
-            if (RoslynFeatures.IsExtensionContainer(member) && !RoslynFeatures.SupportsExtensionBlocks)
-            {
-                continue;
-            }
-
-            // A block declares no accessibility of its own and reads as public because its container
-            // does. What a consumer reaches is its members, so one that offers none is not surface:
-            // recording its header would commit the baseline to API nothing outside can call, and
-            // render an empty block the reader has to account for.
-            if (RoslynFeatures.IsExtensionContainer(member) && !DeclaresRenderedMember(member, options))
+            if (!IsVisibleType(member, options))
             {
                 continue;
             }
@@ -354,6 +332,45 @@ internal static class ApiSurfaceRenderer
         });
 
         return types;
+    }
+
+    /// <summary>Checks namespace contents without collecting or sorting types that will not be written here.</summary>
+    /// <param name="container">The namespace or type.</param>
+    /// <param name="options">The render options.</param>
+    /// <returns>Whether any declared type belongs in the surface.</returns>
+    internal static bool HasVisibleTypes(INamespaceOrTypeSymbol container, ApiRenderOptions options)
+    {
+        foreach (var member in container.GetTypeMembers())
+        {
+            if (IsVisibleType(member, options))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Applies the same type filter to namespace selection and rendering.</summary>
+    /// <param name="type">The declared type.</param>
+    /// <param name="options">The render options.</param>
+    /// <returns>Whether the type belongs in the surface.</returns>
+    internal static bool IsVisibleType(INamedTypeSymbol type, ApiRenderOptions options)
+    {
+        if (!ApiSymbolFilter.IsExternallyVisible(type))
+        {
+            return false;
+        }
+
+        // Reject unsupported containers before inspecting their attributes or members.
+        var extension = RoslynFeatures.IsExtensionContainer(type);
+        if (extension && !RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return false;
+        }
+
+        var included = options.IncludeGeneratedCode || !ApiSymbolFilter.IsGeneratedCode(type);
+        return included && (!extension || DeclaresRenderedMember(type, options));
     }
 
     /// <summary>Renders one type and everything it declares.</summary>
@@ -428,7 +445,13 @@ internal static class ApiSurfaceRenderer
         CancellationToken cancellationToken)
     {
         var declared = type.GetMembers();
-        var members = new List<ISymbol>(declared.Length);
+        var members = writer.Members;
+        members.Clear();
+        if (members.Capacity < declared.Length)
+        {
+            members.Capacity = declared.Length;
+        }
+
         foreach (var member in declared)
         {
             // Nested types come from GetTypeMembers, after the members.
@@ -991,14 +1014,11 @@ internal static class ApiSurfaceRenderer
         /// <summary>The initial buffer a surface document is built in.</summary>
         private const int DocumentCapacity = 4096;
 
-        /// <summary>The initial number of lines a surface document is sized for.</summary>
-        private const int LineCapacity = 256;
-
         /// <summary>The symbol each emitted line belongs to, indexed by line number.</summary>
-        private readonly List<ISymbol?> _symbolsByLine = new(LineCapacity);
+        private readonly List<ISymbol?> _symbolsByLine = [];
 
         /// <summary>Where each declaration sits in the document, and what produced it.</summary>
-        private readonly List<RenderedApiSurface.Written> _declarations = new(LineCapacity);
+        private readonly List<RenderedApiSurface.Written> _declarations = [];
 
         /// <summary>The symbol of the declaration being written, if one is open.</summary>
         private ISymbol? _openSymbol;
@@ -1020,6 +1040,9 @@ internal static class ApiSurfaceRenderer
 
         /// <summary>Gets the text builder.</summary>
         internal PooledStringBuilder Builder { get; } = new(DocumentCapacity);
+
+        /// <summary>Gets member-sorting storage reused after each type's members have been written.</summary>
+        internal List<ISymbol> Members { get; } = [];
 
         /// <summary>
         /// Gets <see cref="CountLine"/> as a delegate, created once. The attribute renderer takes the
@@ -1111,8 +1134,9 @@ internal static class ApiSurfaceRenderer
 
         /// <summary>Finishes the rendering.</summary>
         /// <returns>The rendered surface.</returns>
+        /// <remarks>Transfers the recorded storage to the surface; the writer must not be used again.</remarks>
         internal RenderedApiSurface Complete() =>
-            new(Builder.ToString(), _symbolsByLine.ToArray(), _declarations.ToImmutableArray());
+            new(Builder.ToString(), _symbolsByLine, _declarations);
 
         /// <summary>Records that a line was written directly to <see cref="Builder"/>.</summary>
         /// <param name="rendered">The attribute the line carries, unused for a declaration's own.</param>

@@ -2,6 +2,8 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using Microsoft.CodeAnalysis.CSharp;
+
 namespace PublicApiSharp.Analyzers.Tests;
 
 /// <summary>
@@ -10,6 +12,85 @@ namespace PublicApiSharp.Analyzers.Tests;
 /// </summary>
 public class ApiSurfaceRenderingTests
 {
+    /// <summary>Verifies each type writes its own sorted members when sorting storage is reused.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task NestedAndSiblingTypesKeepTheirOwnMembersAsync()
+    {
+        const string Source = """
+                              public interface IAlpha
+                              {
+                                  void Z();
+                                  void A();
+                                  public interface Nested { void C(); void B(); }
+                              }
+                              public interface IBeta { void Y(); }
+                              public interface IGamma { }
+                              public interface IOmega { void F(); void E(); void D(); void C(); }
+                              """;
+        const string Expected = """
+                                public interface IAlpha
+                                {
+                                    void A() { }
+                                    void Z() { }
+                                    public interface Nested
+                                    {
+                                        void B() { }
+                                        void C() { }
+                                    }
+                                }
+                                public interface IBeta
+                                {
+                                    void Y() { }
+                                }
+                                public interface IGamma
+                                {
+                                }
+                                public interface IOmega
+                                {
+                                    void C() { }
+                                    void D() { }
+                                    void E() { }
+                                    void F() { }
+                                }
+
+                                """;
+
+        await AssertRendersAsync(Source, Expected);
+    }
+
+    /// <summary>Verifies namespace selection uses the same visibility filter as type rendering.</summary>
+    /// <param name="source">The types declared at global scope.</param>
+    /// <param name="expected">Whether any type belongs in the surface.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("", false)]
+    [Arguments("internal class Hidden { }", false)]
+    [Arguments("internal class Hidden { } public class Visible { }", true)]
+    public async Task NamespaceSelectionFindsOnlyVisibleTypesAsync(string source, bool expected)
+    {
+        var container = ApiSurfaceTestHost.Compile(source).Assembly.GlobalNamespace;
+
+        await Assert.That(ApiSurfaceRenderer.HasVisibleTypes(container, ApiRenderOptions.Default)).IsEqualTo(expected);
+        await Assert.That(ApiSurfaceRenderer.VisibleTypes(container, ApiRenderOptions.Default).Count > 0).IsEqualTo(expected);
+    }
+
+    /// <summary>Verifies a parsed extension container is visible only when its baseline syntax is supported.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task ExtensionContainerVisibilityRequiresSupportedBaselineSyntaxAsync()
+    {
+        const string Source = "public static class Extensions { extension(string text) { public int Length() => 0; } }";
+        var compilation = ApiSurfaceTestHost.Compile("public static class Extensions { }")
+            .RemoveAllSyntaxTrees()
+            .AddSyntaxTrees(CSharpSyntaxTree.ParseText(Source, new(LanguageVersion.Preview)));
+        var container = compilation.GetTypeByMetadataName("Extensions")!;
+
+        // The floor cannot parse an extension container; 4.14 exposes its symbol but not baseline syntax.
+        await Assert.That(ApiSurfaceRenderer.HasVisibleTypes(container, ApiRenderOptions.Default)).IsEqualTo(RoslynFeatures.SupportsExtensionBlocks);
+        await Assert.That(ApiSurfaceRenderer.VisibleTypes(container, ApiRenderOptions.Default).Count).IsEqualTo(RoslynFeatures.SupportsExtensionBlocks ? 1 : 0);
+    }
+
     /// <summary>Namespace ordering uses unescaped qualified names, including parent and prefix ties.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Test]

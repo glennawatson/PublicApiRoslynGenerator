@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for full license information.
 
 using System;
+using System.Collections.Generic;
 
 namespace PublicApiSharp.Analyzers;
 
@@ -15,16 +16,17 @@ namespace PublicApiSharp.Analyzers;
 internal sealed class RenderedApiSurface
 {
     /// <summary>The symbol whose declaration begins at each line, indexed by line number.</summary>
-    private readonly ISymbol?[] _symbolsByLine;
+    private readonly List<ISymbol?> _symbolsByLine;
 
     /// <summary>Where each declaration sits in the text, and what it was written from.</summary>
-    private readonly ImmutableArray<Written> _written;
+    private readonly List<Written> _written;
 
     /// <summary>Initializes a new instance of the <see cref="RenderedApiSurface"/> class.</summary>
     /// <param name="text">The rendered surface text.</param>
     /// <param name="symbolsByLine">The symbol that starts at each line, indexed by zero-based line number.</param>
     /// <param name="written">Where each declaration sits in the text.</param>
-    internal RenderedApiSurface(string text, ISymbol?[] symbolsByLine, ImmutableArray<Written> written)
+    /// <remarks>The surface owns both lists; the writer that recorded them hands them over and stops using them.</remarks>
+    internal RenderedApiSurface(string text, List<ISymbol?> symbolsByLine, List<Written> written)
     {
         Text = text;
         _symbolsByLine = symbolsByLine;
@@ -65,7 +67,7 @@ internal sealed class RenderedApiSurface
     /// <param name="line">The zero-based line number.</param>
     /// <returns>The symbol, or <see langword="null"/>.</returns>
     internal ISymbol? SymbolAtLine(int line) =>
-        line >= 0 && line < _symbolsByLine.Length ? _symbolsByLine[line] : null;
+        line >= 0 && line < _symbolsByLine.Count ? _symbolsByLine[line] : null;
 
     /// <summary>Trims each line of a span the way the parser normalizes a declaration.</summary>
     /// <param name="text">The whole document.</param>
@@ -114,10 +116,11 @@ internal sealed class RenderedApiSurface
     /// <returns>The declarations.</returns>
     private ImmutableArray<ApiDeclaration> Build()
     {
-        var builder = ImmutableArray.CreateBuilder<ApiDeclaration>(_written.Length);
+        var builder = ImmutableArray.CreateBuilder<ApiDeclaration>(_written.Count);
 
-        foreach (var written in _written)
+        for (var index = 0; index < _written.Count; index++)
         {
+            var written = _written[index];
             var identity = written.Symbol is { } symbol
                 ? ApiIdentity.Of(symbol)
                 : ApiIdentity.OfAssemblyAttribute(written.AssemblyAttribute!);

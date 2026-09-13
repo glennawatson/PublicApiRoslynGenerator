@@ -94,21 +94,24 @@ internal static class ApiAttributeRenderer
             return;
         }
 
-        var rendered = new List<string>(attributes.Length);
+        var rendered = new string[attributes.Length];
+        var count = 0;
         foreach (var attribute in attributes)
         {
             if (ShouldInclude(attribute, options))
             {
-                rendered.Add(Render(attribute));
+                rendered[count] = Render(attribute);
+                count++;
             }
         }
 
         // Attribute order in source is not meaningful, so sorting keeps the baseline from churning
         // when someone reorders them.
-        rendered.Sort(StringComparer.Ordinal);
+        Array.Sort(rendered, 0, count, StringComparer.Ordinal);
 
-        foreach (var text in rendered)
+        for (var index = 0; index < count; index++)
         {
+            var text = rendered[index];
             _ = builder.Append(indent).Append('[').Append(target).Append(text).Append(']').Append('\n');
             lineCallback(text);
         }

@@ -16,6 +16,38 @@ public class RenderedApiSurfaceTests
     /// <summary>The declaration text retained by the writer.</summary>
     private const string TypeHeader = "public class Thing";
 
+    /// <summary>Verifies transferred storage retains only written entries through empty and growing buffers.</summary>
+    /// <param name="count">The number of declarations to write.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments(0)]
+    [Arguments(1)]
+    [Arguments(4)]
+    [Arguments(5)]
+    [Arguments(257)]
+    public async Task CompletedSurfaceRetainsWrittenEntriesAsync(int count)
+    {
+        var symbol = ApiSurfaceTestHost.Compile(TypeSource).GetTypeByMetadataName(TypeName)!;
+        var writer = new ApiSurfaceRenderer.SurfaceWriter();
+        for (var index = 0; index < count; index++)
+        {
+            writer.Pending = symbol;
+            writer.Line(string.Empty, TypeHeader, symbol);
+        }
+
+        var surface = writer.Complete();
+
+        await Assert.That(surface.Declarations.Length).IsEqualTo(count);
+        await Assert.That(surface.SymbolAtLine(-1)).IsNull();
+        await Assert.That(surface.SymbolAtLine(count)).IsNull();
+        for (var index = 0; index < count; index++)
+        {
+            await Assert.That(surface.SymbolAtLine(index)).IsEqualTo(symbol);
+            await Assert.That(surface.Declarations[index].Text).IsEqualTo(TypeHeader);
+            await Assert.That(surface.Declarations[index].StartLine).IsEqualTo(index);
+        }
+    }
+
     /// <summary>Verifies the next line owns the pending symbol and consumes that pending state.</summary>
     /// <returns>A task representing the asynchronous test operation.</returns>
     [Test]
@@ -93,7 +125,7 @@ public class RenderedApiSurfaceTests
         var surface = new RenderedApiSurface(
             text,
             [],
-            ImmutableArrays.Of(new RenderedApiSurface.Written(null, "ExampleAttribute", prefix.Length, prefix.Length + raw.Length, 1)));
+            [new(null, "ExampleAttribute", prefix.Length, prefix.Length + raw.Length, 1)]);
 
         var declarations = surface.Declarations;
 
