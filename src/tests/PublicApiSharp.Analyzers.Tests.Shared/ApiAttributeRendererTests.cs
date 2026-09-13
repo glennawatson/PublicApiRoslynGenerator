@@ -55,6 +55,26 @@ public class ApiAttributeRendererTests
         }
     }
 
+    /// <summary>Verifies scalar and array named arguments share one ordinal ordering after positional values.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task NamedArgumentsKeepOrdinalOrderWithArrayValuesAsync()
+    {
+        const string Source = """
+                              [Some(7, Z = 9, A = new[] { 1, 2 })]
+                              public class C { }
+                              public class SomeAttribute : System.Attribute
+                              {
+                                  public SomeAttribute(int value) { }
+                                  public int Z { get; set; }
+                                  public int[] A { get; set; } = null!;
+                              }
+                              """;
+        var type = ApiSurfaceTestHost.Compile(Source).GetTypeByMetadataName("C")!;
+
+        await Assert.That(ApiAttributeRenderer.Render(type.GetAttributes()[0])).IsEqualTo("Some(7, A=new int[] { 1, 2 }, Z=9)");
+    }
+
     /// <summary>Verifies excluded attributes leave no empty entries among the sorted lines.</summary>
     /// <returns>A task representing the asynchronous test operation.</returns>
     [Test]

@@ -2,6 +2,8 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using System;
+
 namespace RoslynCommon.Analyzers;
 
 /// <summary>Reads editorconfig settings, matching the CA-analyzer key convention.</summary>
@@ -50,26 +52,45 @@ internal static class AnalyzerOptionReader
             return [];
         }
 
-        var parts = value.Split(',');
-        var parsed = new string[parts.Length];
+        var remaining = value.AsSpan();
         var count = 0;
-        for (var i = 0; i < parts.Length; i++)
+        while (!remaining.IsEmpty)
         {
-            var trimmed = parts[i].Trim();
-            if (trimmed.Length > 0)
+            if (!ReadNext(ref remaining).IsEmpty)
             {
-                parsed[count] = trimmed;
                 count++;
             }
         }
 
-        if (count == parts.Length)
+        if (count == 0)
         {
-            return parsed;
+            return [];
         }
 
         var result = new string[count];
-        System.Array.Copy(parsed, result, count);
+        remaining = value.AsSpan();
+        var index = 0;
+        while (!remaining.IsEmpty)
+        {
+            var entry = ReadNext(ref remaining);
+            if (!entry.IsEmpty)
+            {
+                result[index] = entry.ToString();
+                index++;
+            }
+        }
+
         return result;
+    }
+
+    /// <summary>Consumes one comma-delimited entry and trims its surrounding whitespace.</summary>
+    /// <param name="remaining">The unconsumed list text, advanced past this entry.</param>
+    /// <returns>The trimmed entry without allocating a string.</returns>
+    private static ReadOnlySpan<char> ReadNext(ref ReadOnlySpan<char> remaining)
+    {
+        var separator = remaining.IndexOf(',');
+        var entry = separator < 0 ? remaining : remaining.Slice(0, separator);
+        remaining = separator < 0 ? default : remaining.Slice(separator + 1);
+        return entry.Trim();
     }
 }

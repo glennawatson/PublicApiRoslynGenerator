@@ -134,7 +134,7 @@ internal sealed class ApiMemberOrder : IComparer<ISymbol>
 
             // Two overloads may differ only in how a parameter is passed, which its type does not
             // show. Leaving them tied would let declaration order settle it.
-            result = x[i].RefKind.CompareTo(y[i].RefKind);
+            result = ((int)x[i].RefKind).CompareTo((int)y[i].RefKind);
             if (result != 0)
             {
                 return result;

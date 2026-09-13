@@ -329,6 +329,22 @@ public class ApiSurfaceRenderingEdgeCaseTests
         await Assert.That(rendered).Contains("public void Unconstrained<T>() { }");
     }
 
+    /// <summary>Verifies a long constraint list retains its primary, interface and constructor order.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task CombinedConstraintsRetainTheirRequiredOrderAsync()
+    {
+        const string Source = """
+                              public interface IA { }
+                              public interface IB { }
+                              public interface IC { }
+                              public interface ID { }
+                              public class Contract<T> where T : class, IA, IB, IC, ID, new() { }
+                              """;
+
+        await Assert.That(ApiSurfaceTestHost.Render(Source)).Contains("where T : class, IA, IB, IC, ID, new()");
+    }
+
     /// <summary>Verifies attribute arguments render, with named ones sorted after positional ones.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>Named arguments are unordered in source, so sorting keeps the baseline stable.</remarks>

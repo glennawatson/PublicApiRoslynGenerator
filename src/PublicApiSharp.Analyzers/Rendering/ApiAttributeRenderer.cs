@@ -149,12 +149,13 @@ internal static class ApiAttributeRenderer
 
         // C# lets an attribute be written without its suffix, and that is how it is written in
         // source, so that is how it is recorded.
+        var length = name.Length;
         if (name.EndsWith(AttributeSuffix, StringComparison.Ordinal) && name.Length > AttributeSuffix.Length)
         {
-            name = name.Substring(0, name.Length - AttributeSuffix.Length);
+            length -= AttributeSuffix.Length;
         }
 
-        _ = builder.Append(name);
+        _ = builder.Append(name, length);
 
         if (attribute.ConstructorArguments.IsEmpty && attribute.NamedArguments.IsEmpty)
         {
@@ -186,23 +187,25 @@ internal static class ApiAttributeRenderer
     internal static void AppendNamedArguments(PooledStringBuilder builder, AttributeData attribute, bool first)
     {
         // Named arguments are unordered in source; sort so the baseline is stable.
-        var named = new List<string>(attribute.NamedArguments.Length);
-        foreach (var argument in attribute.NamedArguments)
+        var arguments = attribute.NamedArguments;
+        var named = arguments.IsEmpty ? Array.Empty<string>() : new string[arguments.Length];
+        for (var index = 0; index < arguments.Length; index++)
         {
+            var argument = arguments[index];
             if (argument.Value.Kind == TypedConstantKind.Array)
             {
                 var argumentBuilder = new PooledStringBuilder();
                 _ = argumentBuilder.Append(argument.Key).Append('=');
                 AppendArgument(argumentBuilder, argument.Value);
-                named.Add(argumentBuilder.ToString());
+                named[index] = argumentBuilder.ToString();
             }
             else
             {
-                named.Add($"{argument.Key}={argument.Value.ToCSharpString()}");
+                named[index] = $"{argument.Key}={argument.Value.ToCSharpString()}";
             }
         }
 
-        named.Sort(StringComparer.Ordinal);
+        Array.Sort(named, StringComparer.Ordinal);
 
         foreach (var argument in named)
         {

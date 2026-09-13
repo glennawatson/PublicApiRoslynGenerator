@@ -28,6 +28,9 @@ internal static class ApiSurfaceRenderer
     /// <summary>One level of indentation.</summary>
     private const string Indent = "    ";
 
+    /// <summary>Orders visible types ahead of unused array entries without a per-sort adapter.</summary>
+    private static readonly Comparison<INamedTypeSymbol> TypeComparison = CompareTypes;
+
     /// <summary>Renders the compilation's public API surface.</summary>
     /// <param name="compilation">The compilation.</param>
     /// <param name="options">The render options.</param>
@@ -298,10 +301,11 @@ internal static class ApiSurfaceRenderer
     /// <param name="container">The namespace or type.</param>
     /// <param name="options">The render options.</param>
     /// <returns>The types.</returns>
-    internal static List<INamedTypeSymbol> VisibleTypes(INamespaceOrTypeSymbol container, ApiRenderOptions options)
+    internal static ArraySegment<INamedTypeSymbol> VisibleTypes(INamespaceOrTypeSymbol container, ApiRenderOptions options)
     {
         var declared = container.GetTypeMembers();
-        var types = new List<INamedTypeSymbol>(declared.Length);
+        var types = declared.IsEmpty ? Array.Empty<INamedTypeSymbol>() : new INamedTypeSymbol[declared.Length];
+        var count = 0;
         foreach (var member in declared)
         {
             if (!IsVisibleType(member, options))
@@ -309,16 +313,33 @@ internal static class ApiSurfaceRenderer
                 continue;
             }
 
-            types.Add(member);
+            types[count] = member;
+            count++;
         }
 
-        types.Sort(static (a, b) =>
-        {
-            var result = string.CompareOrdinal(TypeSortKey(a), TypeSortKey(b));
-            return result != 0 ? result : a.Arity.CompareTo(b.Arity);
-        });
+        Array.Sort(types, TypeComparison);
 
-        return types;
+        return new(types, 0, count);
+    }
+
+    /// <summary>Orders types by name and arity, placing unused array entries last.</summary>
+    /// <param name="a">The first type, or an unused entry.</param>
+    /// <param name="b">The second type, or an unused entry.</param>
+    /// <returns>The relative order of the entries.</returns>
+    internal static int CompareTypes(INamedTypeSymbol? a, INamedTypeSymbol? b)
+    {
+        if (a is null)
+        {
+            return b is null ? 0 : 1;
+        }
+
+        if (b is null)
+        {
+            return -1;
+        }
+
+        var result = string.CompareOrdinal(TypeSortKey(a), TypeSortKey(b));
+        return result != 0 ? result : a.Arity.CompareTo(b.Arity);
     }
 
     /// <summary>Applies the same type filter to namespace selection and rendering.</summary>
@@ -442,8 +463,10 @@ internal static class ApiSurfaceRenderer
             RenderMember(writer, member, indent, options);
         }
 
-        foreach (var nested in VisibleTypes(type, options))
+        var nestedTypes = VisibleTypes(type, options);
+        for (var index = 0; index < nestedTypes.Count; index++)
         {
+            var nested = nestedTypes.Array![nestedTypes.Offset + index];
             RenderType(writer, nested, indent, options, cancellationToken);
         }
     }
@@ -546,7 +569,7 @@ internal static class ApiSurfaceRenderer
             : null;
 
         var interfaces = VisibleInterfaces(type);
-        if (baseType is null && interfaces is null)
+        if (baseType is null && interfaces.Count == 0)
         {
             return;
         }
@@ -827,13 +850,14 @@ internal static class ApiSurfaceRenderer
     /// <param name="cancellationToken">A cancellation token.</param>
     private static void RenderTypes(
         SurfaceWriter writer,
-        List<INamedTypeSymbol> types,
+        ArraySegment<INamedTypeSymbol> types,
         string indent,
         ApiRenderOptions options,
         CancellationToken cancellationToken)
     {
-        foreach (var type in types)
+        for (var index = 0; index < types.Count; index++)
         {
+            var type = types.Array![types.Offset + index];
             RenderType(writer, type, indent, options, cancellationToken);
         }
     }
@@ -963,35 +987,37 @@ internal static class ApiSurfaceRenderer
 
     /// <summary>Collects the interfaces a type implements that a consumer can name.</summary>
     /// <param name="type">The type.</param>
-    /// <returns>The rendered interface names, or <see langword="null"/> when there are none.</returns>
-    /// <remarks>Staying null for a type that implements nothing keeps a list off the heap entirely.</remarks>
-    private static List<string>? VisibleInterfaces(INamedTypeSymbol type)
+    /// <returns>The populated range of rendered interface names.</returns>
+    /// <remarks>Storage is allocated only when an externally visible interface is found.</remarks>
+    private static ArraySegment<string> VisibleInterfaces(INamedTypeSymbol type)
     {
-        List<string>? interfaces = null;
+        string[]? interfaces = null;
+        var count = 0;
         foreach (var implemented in type.Interfaces)
         {
             if (ApiSymbolFilter.IsExternallyVisible(implemented))
             {
-                interfaces ??= new List<string>(type.Interfaces.Length);
-                interfaces.Add(implemented.ToDisplayString(ApiDisplayFormats.TypeReference));
+                interfaces ??= new string[type.Interfaces.Length];
+                interfaces[count] = implemented.ToDisplayString(ApiDisplayFormats.TypeReference);
+                count++;
             }
         }
 
-        return interfaces;
+        return interfaces is null ? default : new(interfaces, 0, count);
     }
 
     /// <summary>Appends a type's interfaces, sorted, after whatever already leads the base list.</summary>
     /// <param name="builder">The builder.</param>
-    /// <param name="interfaces">The interfaces, or <see langword="null"/>.</param>
+    /// <param name="interfaces">The populated range of interface names.</param>
     /// <param name="afterBaseType">Whether a base type has already been written.</param>
-    private static void AppendInterfaces(PooledStringBuilder builder, List<string>? interfaces, bool afterBaseType)
+    private static void AppendInterfaces(PooledStringBuilder builder, ArraySegment<string> interfaces, bool afterBaseType)
     {
-        if (interfaces is null)
+        if (interfaces.Count == 0)
         {
             return;
         }
 
-        interfaces.Sort(StringComparer.Ordinal);
+        Array.Sort(interfaces.Array!, interfaces.Offset, interfaces.Count, StringComparer.Ordinal);
         for (var i = 0; i < interfaces.Count; i++)
         {
             if (afterBaseType || i > 0)
@@ -999,7 +1025,7 @@ internal static class ApiSurfaceRenderer
                 _ = builder.Append(", ");
             }
 
-            _ = builder.Append(interfaces[i]);
+            _ = builder.Append(interfaces.Array![interfaces.Offset + i]);
         }
     }
 
@@ -1007,7 +1033,7 @@ internal static class ApiSurfaceRenderer
     /// <param name="Name">The unescaped qualified name used for ordering.</param>
     /// <param name="Symbol">The namespace.</param>
     /// <param name="Types">Its externally visible types, in rendering order.</param>
-    internal readonly record struct NamespaceTypes(string Name, INamespaceSymbol Symbol, List<INamedTypeSymbol> Types);
+    internal readonly record struct NamespaceTypes(string Name, INamespaceSymbol Symbol, ArraySegment<INamedTypeSymbol> Types);
 
     /// <summary>Accumulates the surface text and each declaration's symbol and line boundaries.</summary>
     /// <remarks>

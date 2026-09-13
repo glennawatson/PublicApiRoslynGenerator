@@ -12,6 +12,49 @@ namespace PublicApiSharp.Analyzers.Tests;
 /// </summary>
 public class ApiSurfaceRenderingTests
 {
+    /// <summary>Verifies filtered type storage exposes only its populated entries in name and arity order.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task VisibleTypesSortOnlyRetainedEntriesAsync()
+    {
+        const int Expected = 3;
+        const string Source = "internal class Hidden { } public class Z { } public class A<T> { } internal class Other { } public class A { }";
+        var container = ApiSurfaceTestHost.Compile(Source).Assembly.GlobalNamespace;
+        var types = ApiSurfaceRenderer.VisibleTypes(container, ApiRenderOptions.Default);
+
+        await Assert.That(types.Count).IsEqualTo(Expected);
+        await Assert.That(types[0].Name).IsEqualTo("A");
+        await Assert.That(types[0].Arity).IsEqualTo(0);
+        await Assert.That(types[1].Name).IsEqualTo("A");
+        await Assert.That(types[1].Arity).IsEqualTo(1);
+        await Assert.That(types[2].Name).IsEqualTo("Z");
+    }
+
+    /// <summary>Verifies unused array entries sort after visible types and compare equal to each other.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task UnusedTypeEntriesSortLastAsync()
+    {
+        var type = ApiSurfaceTestHost.Compile("public class Visible { }").GetTypeByMetadataName("Visible")!;
+
+        await Assert.That(ApiSurfaceRenderer.CompareTypes(null, null)).IsEqualTo(0);
+        await Assert.That(ApiSurfaceRenderer.CompareTypes(null, type)).IsEqualTo(1);
+        await Assert.That(ApiSurfaceRenderer.CompareTypes(type, null)).IsEqualTo(-1);
+    }
+
+    /// <summary>Verifies hidden interfaces leave neither empty entries nor separators in a base list.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task BaseListSortsOnlyVisibleInterfacesAsync()
+    {
+        const string Source = "public interface IZ { } internal interface IHidden { } public interface IA { } public class Contract : IZ, IHidden, IA { }";
+        var type = ApiSurfaceTestHost.Compile(Source).GetTypeByMetadataName("Contract")!;
+        var builder = new PooledStringBuilder();
+        ApiSurfaceRenderer.AppendBaseList(builder, type);
+
+        await Assert.That(builder.ToString()).IsEqualTo(" : IA, IZ");
+    }
+
     /// <summary>Verifies each type writes its own sorted members when sorting storage is reused.</summary>
     /// <returns>A task representing the asynchronous test operation.</returns>
     [Test]

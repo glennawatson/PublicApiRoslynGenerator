@@ -114,6 +114,50 @@ public class AnalyzerHelperTests
         await Assert.That(values).Count().IsEqualTo(Expected);
     }
 
+    /// <summary>Verifies empty and whitespace-only entries produce no values.</summary>
+    /// <param name="value">The configured list text.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("")]
+    [Arguments(",")]
+    [Arguments(",,")]
+    [Arguments(" \t\r\n\u2003 , \u00a0 ")]
+    public async Task ListsWithoutValuesAreEmptyAsync(string value)
+    {
+        var values = AnalyzerOptionReader.ReadCommaSeparatedList(Options(("k", value)), null, "k");
+
+        await Assert.That(values).IsEmpty();
+    }
+
+    /// <summary>Verifies list parsing preserves order, duplicates and interior whitespace.</summary>
+    /// <param name="value">The configured list text.</param>
+    /// <param name="first">The first retained entry.</param>
+    /// <param name="second">The second retained entry.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments(" , first , , second , ", "first", "second")]
+    [Arguments("\u2003a b\u00a0,\t\r\na b\n", "a b", "a b")]
+    [Arguments("\u200ba\u200b,\ufeffb\ufeff", "\u200ba\u200b", "\ufeffb\ufeff")]
+    public async Task ListValuesKeepTheirContentAndOrderAsync(string value, string first, string second)
+    {
+        const int Expected = 2;
+        var values = AnalyzerOptionReader.ReadCommaSeparatedList(Options(), Options(("k", value)), "k");
+
+        await Assert.That(values).Count().IsEqualTo(Expected);
+        await Assert.That(values[0]).IsEqualTo(first);
+        await Assert.That(values[1]).IsEqualTo(second);
+    }
+
+    /// <summary>Verifies an explicitly empty primary list still overrides fallback entries.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task EmptyPrimaryListOverridesFallbackAsync()
+    {
+        var values = AnalyzerOptionReader.ReadCommaSeparatedList(Options(("k", string.Empty)), Options(("k", "fallback")), "k");
+
+        await Assert.That(values).IsEmpty();
+    }
+
     /// <summary>Verifies the single-item and params array factories both build an array.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Test]
