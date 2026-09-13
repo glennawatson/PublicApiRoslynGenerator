@@ -126,7 +126,8 @@ internal sealed class RenderedApiSurface
                 identity,
                 Normalize(Text, written.Start, written.End),
                 written.Line,
-                new TextSpan(written.Start, written.End - written.Start)));
+                new TextSpan(written.Start, written.End - written.Start),
+                written.Symbol is INamedTypeSymbol type && RoslynFeatures.IsExtensionContainer(type)));
         }
 
         return builder.MoveToImmutable();

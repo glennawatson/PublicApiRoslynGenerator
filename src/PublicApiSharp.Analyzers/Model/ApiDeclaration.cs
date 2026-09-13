@@ -23,9 +23,10 @@ namespace PublicApiSharp.Analyzers;
 /// within the surface it belongs to.
 /// </param>
 /// <param name="Span">The declaration's span, attributes included, within that same surface.</param>
+/// <param name="IsExtensionBlock">Whether matching must distinguish headers sharing one receiver identity.</param>
 /// <remarks>
 /// <para>
-/// A record because that is exactly what it is: two entries built from the same four values describe
+/// A record because that is exactly what it is: two entries built from the same values describe
 /// the same declaration, and nothing about it has an identity of its own.
 /// </para>
 /// <para>
@@ -35,4 +36,4 @@ namespace PublicApiSharp.Analyzers;
 /// more than the per-instance allocation it removed: 819 MB against 899 MB over the same run.
 /// </para>
 /// </remarks>
-internal sealed record ApiDeclaration(string Identity, string Text, int StartLine, TextSpan Span);
+internal sealed record ApiDeclaration(string Identity, string Text, int StartLine, TextSpan Span, bool IsExtensionBlock = false);

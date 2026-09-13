@@ -31,14 +31,11 @@ internal static partial class ApiTextParser
             return false;
         }
 
-        // An extension block has no name, so its whole header is what identifies it. One class may
-        // hold several blocks over the same receiver that differ only in how they constrain it, and
-        // those expose different APIs to different callers: an identity stopping at the receiver
-        // would let one stand for all of them, so a block would be matched against another block's
-        // baseline entry and report a difference that regenerating the file cannot settle.
+        // Arity, receiver type and constraints identify the API exposed by the block and its members.
+        // The comparison also uses the header to pair blocks whose receiver parameter names differ.
         var qualified =
             $"{container}.extension{ArityMarker(Arity(ext.TypeParameterList))}{Parameters(ext.ParameterList)}{Constraints(ext.ConstraintClauses)}";
-        Add(builder, text, qualified, HeaderSpan(ext, ext.OpenBraceToken));
+        Add(builder, text, qualified, HeaderSpan(ext, ext.OpenBraceToken), isExtensionBlock: true);
         VisitMembers(ext.Members, qualified, builder, text, cancellationToken);
         return true;
     }

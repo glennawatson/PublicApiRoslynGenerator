@@ -404,16 +404,19 @@ internal static partial class ApiTextParser
     /// <param name="text">The text being parsed.</param>
     /// <param name="identity">The declaration's identity.</param>
     /// <param name="span">The declaration's span.</param>
+    /// <param name="isExtensionBlock">Whether this declaration is an extension block header.</param>
     private static void Add(
         ImmutableArray<ApiDeclaration>.Builder builder,
         SourceText text,
         string identity,
-        TextSpan span) =>
+        TextSpan span,
+        bool isExtensionBlock = false) =>
         builder.Add(new(
             identity,
             NormalizeText(text.ToString(span)),
             text.Lines.GetLineFromPosition(span.Start).LineNumber,
-            span));
+            span,
+            isExtensionBlock));
 
     /// <summary>Unescapes ordinary namespace names and preserves other name syntax as text.</summary>
     /// <param name="name">The namespace name.</param>

@@ -2,6 +2,7 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using System;
 using System.Collections.Generic;
 using System.Threading;
 
@@ -76,37 +77,94 @@ internal sealed class ApiComparisonState
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        var baselineByIdentity = Index(baseline.Declarations);
+        var currentByIdentity = Index(surface.Declarations);
         var declarationsBySymbol = new Dictionary<ISymbol, ApiDeclaration>(SymbolEqualityComparer.Default);
         foreach (var declaration in surface.Declarations)
         {
             if (surface.SymbolAtLine(declaration.StartLine) is { } symbol)
             {
-                declarationsBySymbol[symbol] = declaration;
+                if (declaration.IsExtensionBlock)
+                {
+                    var key = ComparisonIdentity(declaration);
+                    PairExtensionBlock(declaration, key, baselineByIdentity, currentByIdentity);
+                    declarationsBySymbol[symbol] = declaration with { Identity = key };
+                }
+                else
+                {
+                    declarationsBySymbol[symbol] = declaration;
+                }
             }
         }
 
         return new(
-            Index(baseline.Declarations),
-            Index(surface.Declarations),
+            baselineByIdentity,
+            currentByIdentity,
             declarationsBySymbol);
     }
 
-    /// <summary>Indexes declarations by identity.</summary>
+    /// <summary>Indexes declarations, retaining distinct extension headers within a receiver identity.</summary>
     /// <param name="declarations">The declarations.</param>
     /// <returns>The lookup.</returns>
     internal static Dictionary<string, ApiDeclaration> Index(ImmutableArray<ApiDeclaration> declarations)
     {
-        var map = new Dictionary<string, ApiDeclaration>(declarations.Length, System.StringComparer.Ordinal);
+        var map = new Dictionary<string, ApiDeclaration>(declarations.Length, StringComparer.Ordinal);
         foreach (var declaration in declarations)
         {
-            // A duplicate identity can only come from a hand-edited baseline; the first wins so the
-            // comparison stays deterministic.
-            if (!map.ContainsKey(declaration.Identity))
+            var key = ComparisonIdentity(declaration);
+
+            // Duplicate entries in a hand-edited baseline still keep the first declaration.
+            if (!map.ContainsKey(key))
             {
-                map.Add(declaration.Identity, declaration);
+                map.Add(key, declaration);
             }
         }
 
         return map;
+    }
+
+    /// <summary>Distinguishes extension headers without changing the identities of their members.</summary>
+    /// <param name="declaration">The declaration to index.</param>
+    /// <returns>The comparison key, including the full text for an extension block.</returns>
+    private static string ComparisonIdentity(ApiDeclaration declaration)
+    {
+        if (!declaration.IsExtensionBlock)
+        {
+            return declaration.Identity;
+        }
+
+        var builder = new PooledStringBuilder();
+        _ = builder.Append(declaration.Identity).Append('\n').Append(declaration.Text);
+        return builder.ToString();
+    }
+
+    /// <summary>Pairs a changed header with an unclaimed baseline block after reserving exact matches.</summary>
+    /// <param name="declaration">The current extension block.</param>
+    /// <param name="key">Its full comparison key.</param>
+    /// <param name="baseline">The baseline index, updated to use the current key for a matched block.</param>
+    /// <param name="current">All current keys, including exact matches that must remain reserved.</param>
+    private static void PairExtensionBlock(
+        ApiDeclaration declaration,
+        string key,
+        Dictionary<string, ApiDeclaration> baseline,
+        Dictionary<string, ApiDeclaration> current)
+    {
+        if (baseline.ContainsKey(key))
+        {
+            return;
+        }
+
+        foreach (var candidate in baseline)
+        {
+            if (candidate.Value.IsExtensionBlock
+                && string.Equals(candidate.Value.Identity, declaration.Identity, StringComparison.Ordinal)
+                && !current.ContainsKey(candidate.Key))
+            {
+                // Re-keying consumes this candidate and prevents a second changed block reusing it.
+                _ = baseline.Remove(candidate.Key);
+                baseline.Add(key, candidate.Value);
+                return;
+            }
+        }
     }
 }

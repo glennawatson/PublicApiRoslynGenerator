@@ -445,6 +445,212 @@ public class PublicApiBaselineAnalyzerTests
         await PublicApiVerifier.AnalyzeAsync(Source, HandWritten);
     }
 
+    /// <summary>Verifies two blocks on one receiver match the baseline entry with their parameter name.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task SameReceiverExtensionBlocksMatchTheirOwnBaselineEntryAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = """
+                              public static class SampleExtensions
+                              {
+                                  extension(string text)
+                                  {
+                                      public bool IsEmpty => text.Length == 0;
+                                  }
+
+                                  extension(string other)
+                                  {
+                                      public int Size => other.Length;
+                                  }
+                              }
+                              """;
+        const string RenderedBaseline = """
+                                        public static class SampleExtensions
+                                        {
+                                            extension(string other)
+                                            {
+                                                public int Size { get; }
+                                            }
+                                            extension(string text)
+                                            {
+                                                public bool IsEmpty { get; }
+                                            }
+                                        }
+
+                                        """;
+
+        await Assert.That(ApiSurfaceTestHost.Render(Source)).IsEqualTo(RenderedBaseline);
+        await PublicApiVerifier.AnalyzeAsync(Source, RenderedBaseline);
+    }
+
+    /// <summary>Verifies moving a member between equivalent receivers leaves its public contract unchanged.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task SameReceiverExtensionMemberMovedBetweenBlocksIsSilentAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = """
+                              public static class SampleExtensions
+                              {
+                                  extension(string text)
+                                  {
+                                      public bool HasText => text.Length > 0;
+                                  }
+                                  extension(string other)
+                                  {
+                                      public bool IsEmpty => other.Length == 0;
+                                      public int Size => other.Length;
+                                  }
+                              }
+                              """;
+        const string Previous = """
+                                public static class SampleExtensions
+                                {
+                                    extension(string other)
+                                    {
+                                        public int Size { get; }
+                                    }
+                                    extension(string text)
+                                    {
+                                        public bool HasText { get; }
+                                        public bool IsEmpty { get; }
+                                    }
+                                }
+
+                                """;
+
+        await PublicApiVerifier.AnalyzeAsync(Source, Previous);
+    }
+
+    /// <summary>Verifies a receiver rename pairs with the remaining baseline block after exact matches.</summary>
+    /// <param name="receiverName">The new name, sorting before or after the unchanged block.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("another")]
+    [Arguments("value")]
+    public async Task SameReceiverExtensionParameterRenameReportsOnlyTheChangedBlockAsync(string receiverName)
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        var source = $$"""
+                       public static class SampleExtensions
+                       {
+                           {|#0:extension|}(string {{receiverName}})
+                           {
+                               public bool IsEmpty => {{receiverName}}.Length == 0;
+                           }
+                           extension(string other)
+                           {
+                               public int Size => other.Length;
+                           }
+                       }
+                       """;
+        const string Previous = """
+                                public static class SampleExtensions
+                                {
+                                    extension(string other)
+                                    {
+                                        public int Size { get; }
+                                    }
+                                    extension(string text)
+                                    {
+                                        public bool IsEmpty { get; }
+                                    }
+                                }
+
+                                """;
+        var expected = PublicApiVerifier.Diagnostic(PublicApiRules.Changed)
+            .WithLocation(0)
+            .WithArguments($"extension(string {receiverName})", "extension(string text)", $"extension(string {receiverName})");
+
+        await PublicApiVerifier.AnalyzeAsync(source, Previous, expected);
+    }
+
+    /// <summary>Verifies an additional block on an existing receiver reports the block and its member.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task SameReceiverExtensionBlockAddedReportsOnlyAdditionsAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = """
+                              public static class SampleExtensions
+                              {
+                                  {|PAS0001:extension|}(string other)
+                                  {
+                                      public int {|PAS0001:Size|} => other.Length;
+                                  }
+                                  extension(string text)
+                                  {
+                                      public bool IsEmpty => text.Length == 0;
+                                  }
+                              }
+                              """;
+        const string Previous = """
+                                public static class SampleExtensions
+                                {
+                                    extension(string text)
+                                    {
+                                        public bool IsEmpty { get; }
+                                    }
+                                }
+
+                                """;
+
+        await PublicApiVerifier.AnalyzeAsync(Source, Previous);
+    }
+
+    /// <summary>Verifies a receiver rename in a single block remains one declaration change.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task ExtensionReceiverParameterRenameReportsOneChangeAsync()
+    {
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Source = """
+                              public static class SampleExtensions
+                              {
+                                  {|#0:extension|}(string value)
+                                  {
+                                      public bool IsEmpty => value.Length == 0;
+                                  }
+                              }
+                              """;
+        const string Previous = """
+                                public static class SampleExtensions
+                                {
+                                    extension(string text)
+                                    {
+                                        public bool IsEmpty { get; }
+                                    }
+                                }
+
+                                """;
+        var expected = PublicApiVerifier.Diagnostic(PublicApiRules.Changed)
+            .WithLocation(0)
+            .WithArguments("extension(string value)", "extension(string text)", "extension(string value)");
+
+        await PublicApiVerifier.AnalyzeAsync(Source, Previous, expected);
+    }
+
     /// <summary>Verifies extension blocks separated only by a constraint each match their own entry.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>
