@@ -2,6 +2,8 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using Microsoft.CodeAnalysis;
+
 namespace PublicApiSharp.Analyzers.Tests;
 
 /// <summary>Unit tests for <see cref="ApiLiterals"/>, which spells values the way C# source does.</summary>
@@ -12,6 +14,17 @@ namespace PublicApiSharp.Analyzers.Tests;
 /// </remarks>
 public class ApiLiteralsTests
 {
+    /// <summary>Verifies an unexpected value that returns no text renders as an empty string.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task ValueWithNullRenderingProducesEmptyTextAsync()
+    {
+        var value = default(SymbolDisplayPart);
+
+        await Assert.That(value.ToString()).IsNull();
+        await Assert.That(ApiLiterals.FormatConstant(value)).IsEmpty();
+    }
+
     /// <summary>Verifies an operator the mapping does not know falls back to its metadata name.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Test]

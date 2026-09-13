@@ -40,6 +40,17 @@ public class ApiMemberOrderTests
                                   }
                                   """;
 
+    /// <summary>Verifies a repeated field compares equal after its kind and name tie.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task IdenticalFieldsCompareEqualAsync()
+    {
+        var compilation = ApiSurfaceTestHost.Compile(Source);
+        var field = compilation.GetTypeByMetadataName(ThingMetadataName)!.GetMembers("Field")[0];
+
+        await Assert.That(ApiMemberOrder.Instance.Compare(field, field)).IsEqualTo(0);
+    }
+
     /// <summary>Verifies members group by kind in the order a reader scans a type.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Test]

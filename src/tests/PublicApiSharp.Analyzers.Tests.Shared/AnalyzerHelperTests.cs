@@ -18,6 +18,13 @@ public class AnalyzerHelperTests
     /// <summary>A pattern with an inner wildcard, used across the backtracking cases.</summary>
     private const string InnerWildcard = "A.*.C";
 
+    /// <summary>Verifies a diagnostic displays the declaration after its attribute lines.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task FinalLineOmitsPrecedingAttributesAsync() =>
+        await Assert.That(PublicApiBaselineAnalyzer.FinalLine("[System.Obsolete]\npublic class Thing"))
+            .IsEqualTo("public class Thing");
+
     /// <summary>Verifies a pattern with no wildcard matches only itself.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Test]

@@ -2,6 +2,8 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
 namespace PublicApiSharp.Analyzers.Tests;
@@ -130,6 +132,40 @@ public class ApiIdentityEquivalenceTests
     /// declarations to symbols, and then it would be guarding nothing.
     /// </remarks>
     private const int ExpectedMinimumChecked = 30;
+
+    /// <summary>Verifies readonly references keep their calling convention in both identity forms.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task RefReadonlyParameterIdentityMatchesParsedDeclarationAsync()
+    {
+        var compilation = ApiSurfaceTestHost.Compile("public class C { public void Read(ref readonly int value) { } }");
+        var method = compilation.GetTypeByMetadataName("C")!.GetMembers("Read")[0];
+        var surface = ApiSurfaceRenderer.Render(compilation, ApiRenderOptions.Default, CancellationToken.None);
+        var parsed = ApiTextParser.Parse(SourceText.From(surface.Text), CancellationToken.None);
+        const string Identity = "C.Read(ref readonly int)";
+
+        await Assert.That(ApiIdentity.Of(method)).IsEqualTo(Identity);
+        await Assert.That(parsed.Success).IsTrue();
+        await Assert.That(parsed.Declarations.Select(static declaration => declaration.Identity)).Contains(Identity);
+        await Assert.That(surface.Declarations.Select(static declaration => declaration.Identity)).Contains(Identity);
+    }
+
+    /// <summary>Verifies an anonymous function uses its ordinary name and parameter identity.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task AnonymousFunctionIdentityIncludesItsParameterTypesAsync()
+    {
+        var compilation = ApiSurfaceTestHost.Compile("public class C { public System.Func<int, int> F = value => value; }");
+        var tree = compilation.SyntaxTrees.Single();
+        var root = (CompilationUnitSyntax)await tree.GetRootAsync();
+        var type = (ClassDeclarationSyntax)root.Members[0];
+        var field = (FieldDeclarationSyntax)type.Members[0];
+        var lambda = (SimpleLambdaExpressionSyntax)field.Declaration.Variables[0].Initializer!.Value;
+        var method = (IMethodSymbol)compilation.GetSemanticModel(tree).GetSymbolInfo(lambda).Symbol!;
+
+        await Assert.That(method.MethodKind).IsEqualTo(MethodKind.AnonymousFunction);
+        await Assert.That(ApiIdentity.Of(method)).IsEqualTo("C.F.(int)");
+    }
 
     /// <summary>Verifies every identity derived from a symbol matches the one derived from the text.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>

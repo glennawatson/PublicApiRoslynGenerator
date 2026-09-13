@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for full license information.
 
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 
@@ -36,6 +37,43 @@ public class PublicApiBaselineDiscoveryTests
                                             }
 
                                             """;
+
+    /// <summary>Verifies baseline discovery accepts either directory separator and rejects name suffixes.</summary>
+    /// <param name="path">The additional file path.</param>
+    /// <param name="expected">Whether its final path segment names the baseline.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("PublicAPI/net10.0/PublicAPI.txt", true)]
+    [Arguments("PublicAPI\\net10.0\\PublicAPI.txt", true)]
+    [Arguments("NotPublicAPI.txt", false)]
+    public async Task BaselineFileNameRequiresAPathSegmentAsync(string path, bool expected) =>
+        await Assert.That(PublicApiBaselineAnalyzer.EndsWithFileName(path)).IsEqualTo(expected);
+
+    /// <summary>Verifies a compilation without source trees has no file-scoped options.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task CompilationWithoutTreesHasNoFileScopedOptionsAsync()
+    {
+        var compilation = CSharpCompilation.Create("Empty");
+        AnalyzerOptions options = new([]);
+
+        await Assert.That(PublicApiBaselineAnalyzer.FileScopedOptions(options, compilation)).IsNull();
+    }
+
+    /// <summary>Verifies a stale span beyond the baseline text points to the start of the file.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task BaselineLocationClampsASpanBeyondTheTextAsync()
+    {
+        var baseline = new UnreadableBaseline();
+        var text = SourceText.From("public class Thing { }");
+
+        var location = PublicApiBaselineAnalyzer.BaselineLocation(baseline, text, new(text.Length, 1));
+
+        await Assert.That(location.SourceSpan).IsEqualTo(new(0, 0));
+        await Assert.That(location.GetLineSpan().Path).IsEqualTo(baseline.Path);
+        await Assert.That(location.GetLineSpan().StartLinePosition).IsEqualTo(new(0, 0));
+    }
 
     /// <summary>Verifies the resolved MSBuild path finds a baseline the name alone would not.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>

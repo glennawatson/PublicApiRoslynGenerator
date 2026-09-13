@@ -7,6 +7,70 @@ namespace PublicApiSharp.Analyzers.Tests;
 /// <summary>Tests the normalized declarations retained from rendered text.</summary>
 public class RenderedApiSurfaceTests
 {
+    /// <summary>The type whose symbol the writer records.</summary>
+    private const string TypeSource = "public class Thing { }";
+
+    /// <summary>The type's identity and metadata name.</summary>
+    private const string TypeName = "Thing";
+
+    /// <summary>The declaration text retained by the writer.</summary>
+    private const string TypeHeader = "public class Thing";
+
+    /// <summary>Verifies the next line owns the pending symbol and consumes that pending state.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task WritingALineConsumesItsPendingSymbolAsync()
+    {
+        var symbol = ApiSurfaceTestHost.Compile(TypeSource).GetTypeByMetadataName(TypeName)!;
+        var writer = new ApiSurfaceRenderer.SurfaceWriter { Pending = symbol };
+
+        await Assert.That(writer.Pending).IsEqualTo(symbol);
+        writer.Line(string.Empty, TypeHeader, symbol);
+
+        await Assert.That(writer.Pending).IsNull();
+        var surface = writer.Complete();
+        await Assert.That(surface.SymbolAtLine(0)).IsEqualTo(symbol);
+        await Assert.That(surface.Declarations.Length).IsEqualTo(1);
+    }
+
+    /// <summary>Verifies clearing the next line's symbol retains the declaration already opened.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task ClearingPendingSymbolPreservesTheOpenDeclarationAsync()
+    {
+        var symbol = ApiSurfaceTestHost.Compile(TypeSource).GetTypeByMetadataName(TypeName)!;
+        var writer = new ApiSurfaceRenderer.SurfaceWriter { Pending = symbol };
+
+        writer.Pending = null;
+        await Assert.That(writer.Pending).IsNull();
+        writer.Line(string.Empty, TypeHeader, symbol);
+        var surface = writer.Complete();
+
+        await Assert.That(surface.Declarations.Length).IsEqualTo(1);
+        await Assert.That(surface.Declarations[0].Identity).IsEqualTo(TypeName);
+        await Assert.That(surface.Declarations[0].Text).IsEqualTo(TypeHeader);
+        await Assert.That(surface.SymbolAtLine(0)).IsEqualTo(symbol);
+    }
+
+    /// <summary>Verifies closing a declaration twice does not record an extra entry.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task EndingAnAlreadyClosedDeclarationDoesNotDuplicateItAsync()
+    {
+        var symbol = ApiSurfaceTestHost.Compile(TypeSource).GetTypeByMetadataName(TypeName)!;
+        var writer = new ApiSurfaceRenderer.SurfaceWriter { Pending = symbol };
+        writer.BeginLine(string.Empty);
+        _ = writer.Builder.Append(TypeHeader);
+
+        writer.EndDeclaration();
+        writer.EndDeclaration();
+        writer.EndLine(symbol);
+        var surface = writer.Complete();
+
+        await Assert.That(surface.Declarations.Length).IsEqualTo(1);
+        await Assert.That(surface.Declarations[0].Text).IsEqualTo(TypeHeader);
+    }
+
     /// <summary>Verifies normalization reads only the recorded span and preserves significant whitespace.</summary>
     /// <param name="raw">The declaration as written.</param>
     /// <param name="expected">The declaration text the comparison must retain.</param>

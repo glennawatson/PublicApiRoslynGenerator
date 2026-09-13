@@ -19,6 +19,44 @@ public class ApiTextParserTests
     /// <summary>The identity of the single-int overload used across several of these tests.</summary>
     private const string GoIntIdentity = "Sample.Thing.Go(int)";
 
+    /// <summary>Verifies a type without a body retains its complete semicolon declaration.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task SemicolonTypeHeaderIncludesTheWholeDeclarationAsync()
+    {
+        const string Text = "public record Thing;";
+        var result = ApiTextParser.Parse(SourceText.From(Text), CancellationToken.None);
+
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.Declarations.Length).IsEqualTo(1);
+        await Assert.That(result.Declarations[0].Text).IsEqualTo(Text);
+        await Assert.That(result.Declarations[0].Span).IsEqualTo(new(0, Text.Length));
+    }
+
+    /// <summary>Verifies a constructed type with missing header tokens retains a nonempty span.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task MissingTypeHeaderFallsBackToTheWholeNodeSpanAsync()
+    {
+        var type = SyntaxFactory.ClassDeclaration(
+            default,
+            default,
+            SyntaxFactory.MissingToken(default, SyntaxKind.ClassKeyword, default),
+            SyntaxFactory.MissingToken(default, SyntaxKind.IdentifierToken, default),
+            null,
+            null,
+            null,
+            default,
+            SyntaxFactory.Token(default, SyntaxKind.OpenBraceToken, default),
+            default,
+            SyntaxFactory.Token(default, SyntaxKind.CloseBraceToken, default),
+            default);
+
+        await Assert.That(type.OpenBraceToken.SpanStart).IsEqualTo(type.SpanStart);
+        await Assert.That(type.Span.IsEmpty).IsFalse();
+        await Assert.That(ApiTextParser.HeaderSpan(type, type.OpenBraceToken)).IsEqualTo(type.Span);
+    }
+
     /// <summary>Verifies overloads are separate members, because their parameter types differ.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Test]
