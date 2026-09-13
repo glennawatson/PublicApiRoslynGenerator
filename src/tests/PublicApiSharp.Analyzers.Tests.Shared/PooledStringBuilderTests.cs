@@ -2,6 +2,8 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using System.Runtime.CompilerServices;
+
 namespace PublicApiSharp.Analyzers.Tests;
 
 /// <summary>Unit tests for <see cref="PooledStringBuilder"/>, which backs all rendered text.</summary>
@@ -281,4 +283,216 @@ public class PooledStringBuilderTests
 
         await Assert.That(reused.ToString()).IsEqualTo("still works");
     }
+
+    /// <summary>Verifies a cold document avoids allocating every intermediate doubling buffer.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task ColdDocumentGrowthLimitsIntermediateAllocationsAsync(CancellationToken cancellationToken)
+    {
+        const int InitialCapacity = 4096;
+        const int Fragments = 240;
+        const int FragmentLength = 1000;
+        const long MaximumAllocatedBytes = 750_000;
+
+        var result = await OnFreshThread(
+            static () =>
+            {
+                var before = GC.GetAllocatedBytesForCurrentThread();
+                var builder = new PooledStringBuilder(InitialCapacity);
+                for (var i = 0; i < Fragments; i++)
+                {
+                    _ = builder.Append('x', FragmentLength);
+                }
+
+                var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+                return (Allocated: allocated, Text: builder.ToString());
+            },
+            cancellationToken);
+
+        await Assert.That(result.Allocated).IsLessThan(MaximumAllocatedBytes);
+        await Assert.That(result.Text).IsEqualTo(new('x', Fragments * FragmentLength));
+    }
+
+    /// <summary>Verifies a buffer larger than the retention budget is released.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task OversizedBufferIsNotRetainedAsync(CancellationToken cancellationToken)
+    {
+        var reused = await OnFreshThread(
+            static () =>
+            {
+                var buffer = new char[524_289];
+                PooledStringBuilder.ReturnBuffer(buffer);
+                return ReferenceEquals(buffer, PooledStringBuilder.RentBuffer(buffer.Length));
+            },
+            cancellationToken);
+
+        await Assert.That(reused).IsFalse();
+    }
+
+    /// <summary>Verifies a completed document displaces smaller buffers when the budget is exhausted.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task DocumentBufferSurvivesRetentionBudgetAsync(CancellationToken cancellationToken)
+    {
+        const int PoolSize = 16;
+
+        var reused = await OnFreshThread(
+            static () =>
+            {
+                for (var i = 0; i < PoolSize; i++)
+                {
+                    PooledStringBuilder.ReturnBuffer(new char[32_768]);
+                }
+
+                var document = new char[262_144];
+                PooledStringBuilder.ReturnBuffer(document);
+                return ReferenceEquals(document, PooledStringBuilder.RentBuffer(document.Length));
+            },
+            cancellationToken);
+
+        await Assert.That(reused).IsTrue();
+    }
+
+    /// <summary>Verifies retained character storage stays within one mebibyte per thread.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task RetainedBuffersStayWithinByteBudgetAsync(CancellationToken cancellationToken)
+    {
+        const int PoolSize = 16;
+        const int MaximumCharacters = 524_288;
+
+        var retained = await OnFreshThread(
+            static () =>
+            {
+                for (var i = 0; i < PoolSize; i++)
+                {
+                    PooledStringBuilder.ReturnBuffer(new char[65_536]);
+                }
+
+                var characters = 0;
+                for (var i = 0; i < PoolSize; i++)
+                {
+                    var buffer = PooledStringBuilder.RentBuffer(1);
+                    if (buffer.Length > 1)
+                    {
+                        characters += buffer.Length;
+                    }
+                }
+
+                return characters;
+            },
+            cancellationToken);
+
+        await Assert.That(retained).IsEqualTo(MaximumCharacters);
+    }
+
+    /// <summary>Verifies eviction finds smaller buffers even when the first retained buffer is larger.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task FullPoolReplacesItsSmallestBufferAsync(CancellationToken cancellationToken)
+    {
+        const int PoolSize = 16;
+
+        var reused = await OnFreshThread(
+            static () =>
+            {
+                PooledStringBuilder.ReturnBuffer(new char[65_536]);
+                for (var i = 1; i < PoolSize; i++)
+                {
+                    PooledStringBuilder.ReturnBuffer(new char[256]);
+                }
+
+                var document = new char[262_144];
+                PooledStringBuilder.ReturnBuffer(document);
+                return ReferenceEquals(document, PooledStringBuilder.RentBuffer(document.Length));
+            },
+            cancellationToken);
+
+        await Assert.That(reused).IsTrue();
+    }
+
+    /// <summary>Verifies renting and returning a buffer at the budget boundary restores its reusable capacity.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task BufferAtRetentionLimitCanBeReusedRepeatedlyAsync(CancellationToken cancellationToken)
+    {
+        var reused = await OnFreshThread(
+            static () =>
+            {
+                var buffer = new char[524_288];
+                PooledStringBuilder.ReturnBuffer(buffer);
+                var first = PooledStringBuilder.RentBuffer(buffer.Length);
+                PooledStringBuilder.ReturnBuffer(first);
+                var second = PooledStringBuilder.RentBuffer(buffer.Length);
+                return ReferenceEquals(buffer, first) && ReferenceEquals(buffer, second);
+            },
+            cancellationToken);
+
+        await Assert.That(reused).IsTrue();
+    }
+
+    /// <summary>Verifies the retention limit does not turn large document growth into repeated exact-size allocations.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task OversizedDocumentStillGrowsGeometricallyAsync(CancellationToken cancellationToken)
+    {
+        const int InitialCapacity = 524_288;
+        const int ExtraCharacters = 20;
+        const long MaximumAllocatedBytes = 5_000_000;
+
+        var result = await OnFreshThread(
+            static () =>
+            {
+                var builder = new PooledStringBuilder(InitialCapacity);
+                _ = builder.Append('x', InitialCapacity);
+                var before = GC.GetAllocatedBytesForCurrentThread();
+                for (var i = 0; i < ExtraCharacters; i++)
+                {
+                    _ = builder.Append('y');
+                }
+
+                var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+                return (Allocated: allocated, Text: builder.ToString());
+            },
+            cancellationToken);
+
+        await Assert.That(result.Allocated).IsLessThan(MaximumAllocatedBytes);
+        await Assert.That(result.Text).IsEqualTo(new string('x', InitialCapacity) + new string('y', ExtraCharacters));
+    }
+
+    /// <summary>Verifies a returned buffer is unavailable to a different thread.</summary>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task ReturnedBufferStaysOnItsThreadAsync(CancellationToken cancellationToken)
+    {
+        var original = await OnFreshThread(
+            static () =>
+            {
+                var buffer = new char[256];
+                PooledStringBuilder.ReturnBuffer(buffer);
+                return buffer;
+            },
+            cancellationToken);
+        var other = await OnFreshThread(() => PooledStringBuilder.RentBuffer(original.Length), cancellationToken);
+
+        await Assert.That(ReferenceEquals(original, other)).IsFalse();
+    }
+
+    /// <summary>Runs synchronous pool operations on a new thread with no retained buffers.</summary>
+    /// <typeparam name="T">The observation returned by the operations.</typeparam>
+    /// <param name="action">The pool operations to run without changing threads.</param>
+    /// <param name="cancellationToken">The test cancellation token.</param>
+    /// <returns>The observation after the dedicated thread finishes.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Task<T> OnFreshThread<T>(Func<T> action, CancellationToken cancellationToken) =>
+        Task.Factory.StartNew(action, cancellationToken, TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
 }

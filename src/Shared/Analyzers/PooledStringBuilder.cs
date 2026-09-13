@@ -24,8 +24,8 @@ internal sealed class PooledStringBuilder
     /// <summary>The default rented capacity, sized to hold a typical declaration without growing.</summary>
     private const int DefaultCapacity = 256;
 
-    /// <summary>The buffer growth factor applied when the current backing array is exhausted.</summary>
-    private const int GrowthFactor = 2;
+    /// <summary>Skips intermediate document buffers when rendering first reaches a new thread.</summary>
+    private const int GrowthFactor = 4;
 
     /// <summary>
     /// The number of buffers cached per thread, sized to cover the renderer's nesting depth
@@ -33,6 +33,9 @@ internal sealed class PooledStringBuilder
     /// stay on the lock-free path.
     /// </summary>
     private const int MaxPooledPerThread = 16;
+
+    /// <summary>Limits retained character data to one mebibyte per thread, across all compilations.</summary>
+    private const int MaxPooledCharacters = 524_288;
 
     /// <summary>The line terminator the builder emits.</summary>
     /// <remarks>
@@ -53,6 +56,10 @@ internal sealed class PooledStringBuilder
     /// <summary>The number of populated slots in <see cref="_pool"/>.</summary>
     [ThreadStatic]
     private static int _pooledCount;
+
+    /// <summary>The total character capacity retained in <see cref="_pool"/>.</summary>
+    [ThreadStatic]
+    private static int _pooledCharacters;
 
     /// <summary>The pooled array currently backing the builder.</summary>
     private char[] _buffer;
@@ -101,6 +108,7 @@ internal sealed class PooledStringBuilder
                     pool[i] = pool[_pooledCount - 1];
                     pool[_pooledCount - 1] = null!;
                     _pooledCount--;
+                    _pooledCharacters -= candidate.Length;
                     return candidate;
                 }
             }
@@ -109,18 +117,41 @@ internal sealed class PooledStringBuilder
         return new char[minimumLength];
     }
 
-    /// <summary>Returns a buffer to the thread-local free list, dropping it when the list is full.</summary>
+    /// <summary>Returns a buffer within the thread's budget, preferring larger buffers over growth intermediates.</summary>
     /// <param name="buffer">The rented buffer to return.</param>
     internal static void ReturnBuffer(char[] buffer)
     {
-        var pool = _pool ??= new char[MaxPooledPerThread][];
-        if (_pooledCount >= MaxPooledPerThread)
+        if (buffer.Length > MaxPooledCharacters)
         {
             return;
         }
 
+        var pool = _pool ??= new char[MaxPooledPerThread][];
+        while (_pooledCount >= MaxPooledPerThread || _pooledCharacters + buffer.Length > MaxPooledCharacters)
+        {
+            var smallest = 0;
+            for (var i = 1; i < _pooledCount; i++)
+            {
+                if (pool[i].Length < pool[smallest].Length)
+                {
+                    smallest = i;
+                }
+            }
+
+            if (buffer.Length <= pool[smallest].Length)
+            {
+                return;
+            }
+
+            _pooledCharacters -= pool[smallest].Length;
+            _pooledCount--;
+            pool[smallest] = pool[_pooledCount];
+            pool[_pooledCount] = null!;
+        }
+
         pool[_pooledCount] = buffer;
         _pooledCount++;
+        _pooledCharacters += buffer.Length;
     }
 
     /// <summary>Appends a string.</summary>
