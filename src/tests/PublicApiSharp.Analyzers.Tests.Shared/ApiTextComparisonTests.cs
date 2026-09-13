@@ -50,25 +50,38 @@ public class ApiTextComparisonTests
 
     /// <summary>Verifies a matching baseline requires no allocation to compare repeatedly.</summary>
     /// <returns>A task representing the asynchronous test operation.</returns>
+    /// <remarks>
+    /// The per-thread allocation counter can move by up to one allocation quantum when another thread's
+    /// collection retires this thread's allocation context, even though this thread allocated nothing. A single
+    /// window can therefore read non-zero by chance. An allocation inside the comparison would put every window
+    /// above zero, so requiring one window of exactly zero bytes still fails on any real allocation.
+    /// </remarks>
     [Test]
+    [NotInParallel]
     public async Task MatchingTextComparisonAllocatesNothingAsync()
     {
         const int Iterations = 1000;
+        const int Windows = 5;
         var text = SourceText.From(Baseline.Replace("\n", "\r\n", StringComparison.Ordinal));
         _ = ApiTextComparison.Matches(text, Baseline);
-        var before = GC.GetAllocatedBytesForCurrentThread();
+        var fewest = long.MaxValue;
         var matches = 0;
-        for (var index = 0; index < Iterations; index++)
+        for (var window = 0; window < Windows; window++)
         {
-            if (ApiTextComparison.Matches(text, Baseline))
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var index = 0; index < Iterations; index++)
             {
-                matches++;
+                if (ApiTextComparison.Matches(text, Baseline))
+                {
+                    matches++;
+                }
             }
+
+            fewest = Math.Min(fewest, GC.GetAllocatedBytesForCurrentThread() - before);
         }
 
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
-        await Assert.That(matches).IsEqualTo(Iterations);
-        await Assert.That(allocated).IsEqualTo(0);
+        await Assert.That(matches).IsEqualTo(Iterations * Windows);
+        await Assert.That(fewest).IsEqualTo(0);
     }
 
     /// <summary>Verifies ignored whitespace leaves the full comparison empty and reports nothing.</summary>
