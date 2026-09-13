@@ -25,11 +25,14 @@ public class UpdateBaselineWithoutADocumentTests
     [Test]
     public async Task ProjectWithoutABaselineIsLeftAloneAsync()
     {
-        using var workspace = new AdhocWorkspace();
-        var project = workspace.AddProject("NoBaseline", LanguageNames.CSharp);
-        _ = workspace.AddDocument(project.Id, "Thing.cs", SourceText.From("public class Thing { }"));
+        using var workspace = await PublicApiVerifier.CreateWorkspaceAsync();
+        var projectId = ProjectId.CreateNewId();
+        var solution = workspace.CurrentSolution
+            .AddProject(projectId, "NoBaseline", "NoBaseline", LanguageNames.CSharp)
+            .AddDocument(DocumentId.CreateNewId(projectId), "Thing.cs", SourceText.From("public class Thing { }"));
+        await Assert.That(workspace.TryApplyChanges(solution)).IsTrue();
 
-        var reloaded = workspace.CurrentSolution.GetProject(project.Id)!;
+        var reloaded = workspace.CurrentSolution.GetProject(projectId)!;
         var result = await UpdatePublicApiBaselineCodeFixProvider.UpdateBaselineAsync(reloaded, CancellationToken.None);
 
         await Assert.That(result).IsEqualTo(reloaded.Solution);
@@ -45,7 +48,7 @@ public class UpdateBaselineWithoutADocumentTests
     [Test]
     public async Task ProjectThatCannotCompileIsLeftAloneAsync()
     {
-        using var workspace = new AdhocWorkspace();
+        using var workspace = await PublicApiVerifier.CreateWorkspaceAsync();
 
         var info = ProjectInfo.Create(
             ProjectId.CreateNewId(),
@@ -54,18 +57,23 @@ public class UpdateBaselineWithoutADocumentTests
             "NotCompilable",
             NoCompilationLanguage);
 
-        Project project;
+        var original = workspace.CurrentSolution;
+        Solution solution;
         try
         {
-            project = workspace.AddProject(info);
+            solution = original.AddProject(info);
         }
         catch (NotSupportedException)
         {
-            // Older workspace hosts refuse a language they hold no services for outright, leaving no
-            // project to put the guard to. It is exercised on the hosts that will model one.
+            // A host without services for this language must reject the project without changing
+            // the solution. Hosts that can model it still exercise the code fix's compilation guard.
+            await Assert.That(workspace.Services.IsSupported(NoCompilationLanguage)).IsFalse();
+            await Assert.That(workspace.CurrentSolution).IsEqualTo(original);
             return;
         }
 
+        await Assert.That(workspace.TryApplyChanges(solution)).IsTrue();
+        var project = workspace.CurrentSolution.GetProject(info.Id)!;
         await Assert.That(project.SupportsCompilation).IsFalse();
 
         var result = await UpdatePublicApiBaselineCodeFixProvider.UpdateBaselineAsync(project, CancellationToken.None);

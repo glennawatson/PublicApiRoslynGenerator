@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for full license information.
 
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -35,6 +36,12 @@ internal static class PublicApiVerifier
     /// <param name="descriptor">The rule.</param>
     /// <returns>The expected diagnostic.</returns>
     internal static DiagnosticResult Diagnostic(DiagnosticDescriptor descriptor) => new(descriptor);
+
+    /// <summary>Creates a workspace using the testing package's cached composition factory.</summary>
+    /// <returns>A fresh workspace that the caller owns and must dispose.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static Task<Workspace> CreateWorkspaceAsync() =>
+        new CSharpAnalyzerTest<PublicApiBaselineAnalyzer, DefaultVerifier>().CreateWorkspaceAsync();
 
     /// <summary>Runs the analyzer against a source and a baseline.</summary>
     /// <param name="source">The C# source, with diagnostic markup.</param>
