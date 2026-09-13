@@ -118,12 +118,23 @@ src/MyProject/
   MyProject.csproj
 ```
 
+Set these MSBuild properties in the project file:
+
 | Property | Default | Purpose |
 | --- | --- | --- |
-| `EnablePublicApiBaseline` | `true` | Turns tracking off for a project. |
+| `EnablePublicApiBaseline` | `true` | Set to `false` to disable the package's baseline setup. |
 | `PublicApiBaselineDirectory` | `$(MSBuildProjectDirectory)\PublicAPI` | Where the per-TFM folders live. |
 | `PublicApiBaselineFileName` | `PublicAPI.txt` | The file name inside each folder. |
-| `PublicApiBaselineFile` | *(resolved)* | Set it to place one baseline explicitly. |
+| `PublicApiBaselineFile` | `$(PublicApiBaselineDirectory)\$(TargetFramework)\$(PublicApiBaselineFileName)` | Set it to place one baseline explicitly. |
+
+The default path is resolved only when `TargetFramework` is set. With baseline setup enabled, the
+package supplies it as `build_property.PublicApiBaselineFile` even if the file is missing, and adds
+the file to `@(AdditionalFiles)` only when it exists.
+
+For manual setup, include the baseline as an `AdditionalFiles` item. The configured path takes
+precedence; if it is absent or does not match an available file, a file named `PublicAPI.txt` is
+also recognized. `EnablePublicApiBaseline=false` disables the package's setup, but does not prevent
+recognition of a manually included baseline.
 
 ## Configuration
 
@@ -139,6 +150,12 @@ takes precedence where both set the same key.
 | `publicapisharp.excluded_attributes` | *(empty)* | Attribute patterns to leave out. |
 | `publicapisharp.included_attributes` | *(empty)* | Attribute patterns to keep despite the built-in list. |
 | `publicapisharp.excluded_namespace_prefixes` | *(empty)* | Namespace prefixes to leave out. |
+
+The boolean options accept `true` or `false`; invalid values use the defaults. List entries are
+comma-separated, with surrounding whitespace trimmed and empty entries ignored.
+
+The namespace list is case-sensitive and has no wildcards. Each entry excludes that namespace and
+its descendants: `Sample.Int` excludes `Sample.Int.Nested`, but leaves `Sample.Internals` in the surface.
 
 ### Generated declarations
 
@@ -169,6 +186,8 @@ of characters, so a whole family or a naming convention is one entry rather than
 [*.cs]
 publicapisharp.excluded_attributes = System.Diagnostics.CodeAnalysis.*, *.InternalUseAttribute
 ```
+
+Attribute names are case-sensitive and include the `Attribute` suffix.
 
 Some attributes are dropped without being asked for, because they are the build's own bookkeeping
 rather than API. The version and target-framework stamps matter most: the SDK writes them into every
