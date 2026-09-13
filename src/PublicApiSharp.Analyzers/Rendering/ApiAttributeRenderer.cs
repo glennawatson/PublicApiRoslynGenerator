@@ -169,7 +169,7 @@ internal static class ApiAttributeRenderer
             }
 
             first = false;
-            _ = builder.Append(argument.ToCSharpString());
+            AppendArgument(builder, argument);
         }
 
         AppendNamedArguments(builder, attribute, first);
@@ -186,7 +186,17 @@ internal static class ApiAttributeRenderer
         var named = new List<string>(attribute.NamedArguments.Length);
         foreach (var argument in attribute.NamedArguments)
         {
-            named.Add($"{argument.Key}={argument.Value.ToCSharpString()}");
+            if (argument.Value.Kind == TypedConstantKind.Array)
+            {
+                var argumentBuilder = new PooledStringBuilder();
+                _ = argumentBuilder.Append(argument.Key).Append('=');
+                AppendArgument(argumentBuilder, argument.Value);
+                named.Add(argumentBuilder.ToString());
+            }
+            else
+            {
+                named.Add($"{argument.Key}={argument.Value.ToCSharpString()}");
+            }
         }
 
         named.Sort(StringComparer.Ordinal);
@@ -201,5 +211,29 @@ internal static class ApiAttributeRenderer
             first = false;
             _ = builder.Append(argument);
         }
+    }
+
+    /// <summary>Writes array constants as creation expressions, including arrays nested in object values.</summary>
+    /// <param name="builder">The builder.</param>
+    /// <param name="argument">The constant to render.</param>
+    private static void AppendArgument(PooledStringBuilder builder, TypedConstant argument)
+    {
+        if (argument.Kind != TypedConstantKind.Array || argument.IsNull)
+        {
+            _ = builder.Append(argument.ToCSharpString());
+            return;
+        }
+
+        // Roslyn writes only the initializer braces for arrays. An attribute argument needs a
+        // creation expression, and an empty array needs its type because there is nothing to infer.
+        _ = builder.Append("new ").Append(argument.Type!.ToDisplayString(ApiDisplayFormats.TypeReference)).Append(" {");
+        var values = argument.Values;
+        for (var index = 0; index < values.Length; index++)
+        {
+            _ = builder.Append(index == 0 ? " " : ", ");
+            AppendArgument(builder, values[index]);
+        }
+
+        _ = builder.Append(" }");
     }
 }
