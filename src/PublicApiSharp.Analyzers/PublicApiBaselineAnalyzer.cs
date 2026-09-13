@@ -44,18 +44,6 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
     /// <summary>The file name a baseline uses, under a per-target-framework folder.</summary>
     internal const string BaselineFileName = "PublicAPI.txt";
 
-    /// <summary>Caches the parse of a baseline so an unchanged file is only read once.</summary>
-    private static readonly SourceTextValueProvider<ApiTextParseResult> BaselineProvider =
-        new(static text => ApiTextParser.Parse(text, CancellationToken.None));
-
-    /// <summary>The symbol kinds that can produce a declaration in the surface.</summary>
-    private static readonly ImmutableArray<SymbolKind> TrackedSymbolKinds = ImmutableArrays.Of(
-        SymbolKind.NamedType,
-        SymbolKind.Method,
-        SymbolKind.Property,
-        SymbolKind.Field,
-        SymbolKind.Event);
-
     /// <inheritdoc/>
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArrays.Of(
         PublicApiRules.Added,
@@ -141,9 +129,9 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
     /// </remarks>
     internal static AnalyzerConfigOptions? FileScopedOptions(AnalyzerOptions options, Compilation compilation)
     {
-        using var trees = compilation.SyntaxTrees.GetEnumerator();
-        return trees.MoveNext()
-            ? options.AnalyzerConfigOptionsProvider.GetOptions(trees.Current)
+        var trees = ((CSharpCompilation)compilation).SyntaxTrees;
+        return !trees.IsEmpty
+            ? options.AnalyzerConfigOptionsProvider.GetOptions(trees[0])
             : null;
     }
 
@@ -164,7 +152,11 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
         {
             // Nothing to compare against. Say so once rather than reporting every member in the
             // assembly as newly added.
-            context.RegisterCompilationEndAction(endContext => ReportMissingBaseline(in endContext, globalOptions, baselinePath));
+            if (!string.IsNullOrEmpty(baselinePath))
+            {
+                context.RegisterCompilationEndAction(static endContext => ReportConfiguredMissingBaseline(in endContext));
+            }
+
             return;
         }
 
@@ -174,32 +166,7 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var state = new Lazy<(ApiComparisonState? Comparison, ApiTextParseResult? Error)>(
-            () =>
-            {
-                var compilation = context.Compilation;
-
-                // Ordinary .editorconfig sections need file-scoped options as well as global settings.
-                var options = ApiRenderOptions.Read(globalOptions, FileScopedOptions(context.Options, compilation));
-                var surface = ApiSurfaceRenderer.Render(compilation, options, CancellationToken.None);
-                if (ApiTextComparison.Matches(baselineText, surface.Text))
-                {
-                    return default;
-                }
-
-                if (!context.TryGetValue(baselineText, BaselineProvider, out var baselineParse))
-                {
-                    return default;
-                }
-
-                return baselineParse.Success
-                    ? (ApiComparisonState.Create(surface, baselineParse, CancellationToken.None), null)
-                    : (null, baselineParse);
-            });
-
-        context.RegisterSymbolAction(symbolContext => ReportForSymbol(in symbolContext, state), TrackedSymbolKinds);
-        context.RegisterCompilationEndAction(
-            endContext => ReportAtCompilationEnd(in endContext, state, baselineFile, baselineText));
+        _ = new CompilationState(context, baselineFile, baselineText);
     }
 
     /// <summary>Reports a symbol that the baseline does not have, or has differently.</summary>
@@ -381,4 +348,83 @@ public sealed class PublicApiBaselineAnalyzer : DiagnosticAnalyzer
     /// <param name="text">The declaration text.</param>
     /// <returns>The flattened text.</returns>
     private static string Flatten(string text) => text.Replace('\n', ' ');
+
+    /// <summary>Reports a configured baseline that the compilation was not given.</summary>
+    /// <param name="context">The compilation context.</param>
+    private static void ReportConfiguredMissingBaseline(in CompilationAnalysisContext context)
+    {
+        var globalOptions = context.Options.AnalyzerConfigOptionsProvider.GlobalOptions;
+        _ = globalOptions.TryGetValue(BaselinePathOptionKey, out var baselinePath);
+        ReportMissingBaseline(in context, globalOptions, baselinePath);
+    }
+
+    /// <summary>Owns the callbacks and the comparison initialized once for a compilation.</summary>
+    private sealed class CompilationState
+    {
+        /// <summary>Caches the parse of a baseline so an unchanged file is only read once.</summary>
+        private static readonly SourceTextValueProvider<ApiTextParseResult> BaselineProvider =
+            new(static text => ApiTextParser.Parse(text, CancellationToken.None));
+
+        /// <summary>The symbol kinds that can produce a declaration in the surface.</summary>
+        private static readonly ImmutableArray<SymbolKind> TrackedSymbolKinds = ImmutableArrays.Of(
+            SymbolKind.NamedType,
+            SymbolKind.Method,
+            SymbolKind.Property,
+            SymbolKind.Field,
+            SymbolKind.Event);
+
+        /// <summary>The compilation snapshot and its cached value provider.</summary>
+        private readonly CompilationStartAnalysisContext _context;
+
+        /// <summary>The baseline file.</summary>
+        private readonly AdditionalText _baselineFile;
+
+        /// <summary>The baseline text read at compilation start.</summary>
+        private readonly SourceText _baselineText;
+
+        /// <summary>The comparison, retaining successful results and exceptions between callbacks.</summary>
+        private readonly Lazy<(ApiComparisonState? Comparison, ApiTextParseResult? Error)> _comparison;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="CompilationState"/> class and registers the symbol and
+        /// compilation-end callbacks that share its comparison.
+        /// </summary>
+        /// <param name="context">The compilation snapshot the callbacks are registered on.</param>
+        /// <param name="baselineFile">The baseline file.</param>
+        /// <param name="baselineText">The baseline text read at compilation start.</param>
+        internal CompilationState(CompilationStartAnalysisContext context, AdditionalText baselineFile, SourceText baselineText)
+        {
+            _context = context;
+            _baselineFile = baselineFile;
+            _baselineText = baselineText;
+            _comparison = new(CreateComparison);
+            context.RegisterSymbolAction(symbolContext => ReportForSymbol(in symbolContext, _comparison), TrackedSymbolKinds);
+            context.RegisterCompilationEndAction(endContext => ReportAtCompilationEnd(in endContext, _comparison, _baselineFile, _baselineText));
+        }
+
+        /// <summary>Renders the compilation and compares it with the cached baseline parse.</summary>
+        /// <returns>The comparison, the parse error, or an empty result when the text matches.</returns>
+        private (ApiComparisonState? Comparison, ApiTextParseResult? Error) CreateComparison()
+        {
+            var compilation = _context.Compilation;
+            var globalOptions = _context.Options.AnalyzerConfigOptionsProvider.GlobalOptions;
+
+            // Ordinary .editorconfig sections need file-scoped options as well as global settings.
+            var options = ApiRenderOptions.Read(globalOptions, FileScopedOptions(_context.Options, compilation));
+            var surface = ApiSurfaceRenderer.Render(compilation, options, CancellationToken.None);
+            if (ApiTextComparison.Matches(_baselineText, surface.Text))
+            {
+                return default;
+            }
+
+            if (!_context.TryGetValue(_baselineText, BaselineProvider, out var baselineParse))
+            {
+                return default;
+            }
+
+            return baselineParse.Success
+                ? (ApiComparisonState.Create(surface, baselineParse, CancellationToken.None), null)
+                : (null, baselineParse);
+        }
+    }
 }
