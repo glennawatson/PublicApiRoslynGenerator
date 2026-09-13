@@ -101,7 +101,7 @@ internal static partial class ApiTextParser
         {
             case BaseNamespaceDeclarationSyntax ns:
             {
-                VisitMembers(ns.Members, Combine(container, ns.Name.ToString()), builder, text, cancellationToken);
+                VisitMembers(ns.Members, Combine(container, NamespaceIdentity(ns.Name)), builder, text, cancellationToken);
                 break;
             }
 
@@ -414,6 +414,48 @@ internal static partial class ApiTextParser
             NormalizeText(text.ToString(span)),
             text.Lines.GetLineFromPosition(span.Start).LineNumber,
             span));
+
+    /// <summary>Unescapes ordinary namespace names and preserves other name syntax as text.</summary>
+    /// <param name="name">The namespace name.</param>
+    /// <returns>The normalized namespace path, or literal text for other name syntax.</returns>
+    private static string NamespaceIdentity(NameSyntax name)
+    {
+        if (name is IdentifierNameSyntax identifier)
+        {
+            return identifier.Identifier.ValueText;
+        }
+
+        if (name is QualifiedNameSyntax qualified)
+        {
+            var builder = new PooledStringBuilder();
+            AppendNamespaceIdentity(builder, qualified);
+            return builder.ToString();
+        }
+
+        return name.ToString();
+    }
+
+    /// <summary>Appends unescaped namespace segments, preserving other name syntax as text.</summary>
+    /// <param name="builder">The builder shared by all namespace segments.</param>
+    /// <param name="name">The namespace name or segment.</param>
+    private static void AppendNamespaceIdentity(PooledStringBuilder builder, NameSyntax name)
+    {
+        if (name is IdentifierNameSyntax identifier)
+        {
+            _ = builder.Append(identifier.Identifier.ValueText);
+            return;
+        }
+
+        if (name is QualifiedNameSyntax qualified)
+        {
+            AppendNamespaceIdentity(builder, qualified.Left);
+            _ = builder.Append('.');
+            AppendNamespaceIdentity(builder, qualified.Right);
+            return;
+        }
+
+        _ = builder.Append(name.ToString());
+    }
 
     /// <summary>Builds the identity of a type.</summary>
     /// <param name="qualifiedName">The type's dotted name.</param>

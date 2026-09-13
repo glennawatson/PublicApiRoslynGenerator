@@ -41,6 +41,152 @@ public class PublicApiBaselineAnalyzerTests
         await PublicApiVerifier.AnalyzeAsync(Source, Baseline);
     }
 
+    /// <summary>Verifies keyword identifiers match the baseline rendered from their own symbols.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task EscapedIdentifiersMatchRenderedBaselineAsync()
+    {
+        const string Source = """
+                              namespace @class;
+
+                              public class @struct
+                              {
+                                  public int @int { get; set; }
+
+                                  public void @for(int @if) { }
+
+                                  public event System.EventHandler? @event;
+
+                                  public const int @null = 1;
+                              }
+
+                              public enum @void
+                              {
+                                  @true,
+                              }
+                              """;
+        const string RenderedBaseline = """
+                                        namespace @class;
+
+                                        public class @struct
+                                        {
+                                            public @struct() { }
+                                            public const int @null = 1;
+                                            public int @int { get; set; }
+                                            public event System.EventHandler? @event;
+                                            public void @for(int @if) { }
+                                        }
+                                        public enum @void
+                                        {
+                                            @true = 0,
+                                        }
+
+                                        """;
+
+        await PublicApiVerifier.AnalyzeAsync(Source, RenderedBaseline);
+    }
+
+    /// <summary>Verifies each escaped identifier shape matches its own rendered baseline.</summary>
+    /// <param name="source">The source isolating an escaped identifier shape.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("namespace @class; public static class Thing { }")]
+    [Arguments("namespace Sample.@class.@namespace; public static class Thing { }")]
+    [Arguments("namespace @class { namespace @namespace { public static class Thing { } } }")]
+    [Arguments("public class @struct { }")]
+    [Arguments("public static class Thing { public const int @null = 1; }")]
+    [Arguments("public class Thing { public int @int { get; set; } }")]
+    [Arguments("public class Thing { public event System.EventHandler? @event; }")]
+    [Arguments("public static class Thing { public static void @for() { } }")]
+    [Arguments("public static class Thing { public static void Method(int @if) { } }")]
+    [Arguments("public enum @void { Value }")]
+    [Arguments("public enum Thing { @true }")]
+    [Arguments("public class @int { } public static class Thing { public static void Method(@int @if) { } public static void Method(int @if) { } }")]
+    public async Task EscapedIdentifierShapeMatchesRenderedBaselineAsync(string source)
+    {
+        var baseline = ApiSurfaceTestHost.Render(source);
+        await PublicApiVerifier.AnalyzeAsync(source, baseline);
+    }
+
+    /// <summary>Verifies unusual empty namespace names still leave a source type unrecorded.</summary>
+    /// <param name="baseline">A syntax-valid baseline containing an unusual namespace name.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("namespace global::X { }")]
+    [Arguments("namespace global::X;")]
+    [Arguments("namespace A::B { }")]
+    [Arguments("namespace X<T> { }")]
+    [Arguments("namespace global::A.B { }")]
+    public async Task UnusualNamespaceWithoutDeclarationsReportsAddedTypeAsync(string baseline)
+    {
+        const string Source = "public static class {|PAS0001:Thing|} { }";
+
+        await PublicApiVerifier.AnalyzeAsync(Source, baseline);
+    }
+
+    /// <summary>Verifies unusual namespace names retain their literal identity when comparing types.</summary>
+    /// <param name="namespaceDeclaration">The baseline namespace declaration and opening delimiter.</param>
+    /// <param name="namespaceEnd">The closing brace, or empty for a file-scoped namespace.</param>
+    /// <param name="sourceNamespace">The ordinary namespace that must remain a distinct identity.</param>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("namespace global::X {", "}", "X")]
+    [Arguments("namespace global::X;", "", "X")]
+    [Arguments("namespace A::B {", "}", "B")]
+    [Arguments("namespace X<T> {", "}", "X")]
+    [Arguments("namespace global::A.B {", "}", "A.B")]
+    public async Task UnusualNamespaceWithTypeReportsAdditionAndRemovalAsync(
+        string namespaceDeclaration,
+        string namespaceEnd,
+        string sourceNamespace)
+    {
+        var source = $"namespace {sourceNamespace}; public static class {{|#0:Thing|}} {{ }}";
+        var baseline = $"{namespaceDeclaration}\npublic static class Thing {{ }}\n{namespaceEnd}";
+        const int Line = 2;
+        const int StartColumn = 1;
+        const int EndColumn = 27;
+        var added = PublicApiVerifier.Diagnostic(PublicApiRules.Added)
+            .WithLocation(0)
+            .WithArguments("public static class Thing");
+        var removed = PublicApiVerifier.Diagnostic(PublicApiRules.Removed)
+            .WithSpan(PublicApiVerifier.BaselineFileName, Line, StartColumn, Line, EndColumn)
+            .WithArguments("public static class Thing");
+
+        await PublicApiVerifier.AnalyzeAsync(source, baseline, added, removed);
+    }
+
+    /// <summary>Verifies renaming an escaped method still reports its addition and removal.</summary>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Test]
+    public async Task RenamedEscapedMemberIsReportedAsync()
+    {
+        const string Source = """
+                              namespace @class;
+
+                              public static class @struct
+                              {
+                                  public static void {|PAS0001:@while|}(int @if) { }
+                              }
+                              """;
+        const string PreviousBaseline = """
+                                        namespace @class;
+
+                                        public static class @struct
+                                        {
+                                            public static void @for(int @if) { }
+                                        }
+
+                                        """;
+        const int Line = 5;
+        const int StartColumn = 5;
+        const int EndColumn = 41;
+        var removed = PublicApiVerifier.Diagnostic(PublicApiRules.Removed)
+            .WithSpan(PublicApiVerifier.BaselineFileName, Line, StartColumn, Line, EndColumn)
+            .WithArguments("public static void @for(int @if) { }");
+
+        await PublicApiVerifier.AnalyzeAsync(Source, PreviousBaseline, removed);
+    }
+
     /// <summary>Verifies a member the baseline does not mention is reported on its own declaration.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     [Test]
