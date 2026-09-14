@@ -2,6 +2,7 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
 namespace PublicApiSharp.Analyzers.Tests;
@@ -161,6 +162,56 @@ public class ApiSurfaceRenderingTests
         await Assert.That(visible[0].Types[0].Name).IsEqualTo("IFirst");
         await Assert.That(visible[1].Types[0].Name).IsEqualTo("ISecond");
         await Assert.That(ApiSurfaceRenderer.UsesFileScopedNamespace(namespaces)).IsFalse();
+    }
+
+    /// <summary>Verifies nested namespaces keep Roslyn's traversal order while type members are skipped.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task NestedNamespacesKeepRoslynTraversalOrderAsync()
+    {
+        const string Source = "public interface IGlobal { } namespace Outer { public interface IParent { } namespace Inner { public interface IChild { } namespace Leaf { } } }";
+        var compilation = ApiSurfaceTestHost.Compile(Source);
+
+        await AssertNamespaceTraversalAsync(compilation, ";Outer;Outer.Inner;Outer.Inner.Leaf");
+    }
+
+    /// <summary>Verifies sibling namespaces with the same leaf name remain separate during traversal.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task SiblingNamespacesWithSharedLeafNamesKeepRoslynTraversalOrderAsync()
+    {
+        const string Source = "namespace Right.Shared { public interface IRight { } } namespace Left.Shared { public interface ILeft { } }";
+        var compilation = ApiSurfaceTestHost.Compile(Source);
+
+        await AssertNamespaceTraversalAsync(compilation, ";Left;Left.Shared;Right;Right.Shared");
+    }
+
+    /// <summary>Verifies declarations across files produce one namespace with all its visible types.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task NamespacesDeclaredAcrossFilesKeepAllTypesAsync()
+    {
+        const string FirstSource = "namespace Shared.Nested { public interface IFirst { } }";
+        const string SecondSource = "namespace Shared.Nested { public interface ISecond { } } namespace Shared.Other { public interface IOther { } }";
+        var compilation = ApiSurfaceTestHost.Compile(FirstSource)
+            .AddSyntaxTrees(CSharpSyntaxTree.ParseText(SecondSource, new(LanguageVersion.Preview)));
+
+        await AssertNamespaceTraversalAsync(compilation, ";Shared;Shared.Nested;Shared.Other");
+
+        var namespaces = ApiSurfaceRenderer.CollectNamespaces(compilation.Assembly.GlobalNamespace, ApiRenderOptions.Default, CancellationToken.None);
+        var typeNames = new List<string>();
+        foreach (var entry in namespaces)
+        {
+            if (entry.Name == "Shared.Nested")
+            {
+                foreach (var type in entry.Types)
+                {
+                    typeNames.Add(type.Name);
+                }
+            }
+        }
+
+        await Assert.That(string.Join(';', typeNames)).IsEqualTo("IFirst;ISecond");
     }
 
     /// <summary>Namespace ordering uses unescaped qualified names, including parent and prefix ties.</summary>
@@ -630,6 +681,40 @@ public class ApiSurfaceRenderingTests
                                 """;
 
         await AssertRendersAsync(Source, Expected);
+    }
+
+    /// <summary>Checks the unsorted traversal against Roslyn and the complete set of qualified names.</summary>
+    /// <param name="compilation">The source assembly to traverse.</param>
+    /// <param name="expectedNames">The ordinally sorted qualified names, separated by semicolons.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    private static async Task AssertNamespaceTraversalAsync(CSharpCompilation compilation, string expectedNames)
+    {
+        var actual = ApiSurfaceRenderer.CollectNamespaces(compilation.Assembly.GlobalNamespace, ApiRenderOptions.Default, CancellationToken.None);
+        var expected = new List<INamespaceSymbol>();
+        CollectRoslynNamespaces(compilation.Assembly.GlobalNamespace, expected);
+
+        await Assert.That(actual.Count).IsEqualTo(expected.Count);
+        var names = new string[actual.Count];
+        for (var i = 0; i < actual.Count; i++)
+        {
+            await Assert.That(SymbolEqualityComparer.Default.Equals(actual[i].Symbol, expected[i])).IsTrue();
+            names[i] = actual[i].Name;
+        }
+
+        Array.Sort(names, StringComparer.Ordinal);
+        await Assert.That(string.Join(';', names)).IsEqualTo(expectedNames);
+    }
+
+    /// <summary>Collects the reference traversal using Roslyn's namespace enumeration.</summary>
+    /// <param name="namespaceSymbol">The namespace to visit.</param>
+    /// <param name="into">The namespaces in their original traversal order.</param>
+    private static void CollectRoslynNamespaces(INamespaceSymbol namespaceSymbol, List<INamespaceSymbol> into)
+    {
+        into.Add(namespaceSymbol);
+        foreach (var member in namespaceSymbol.GetNamespaceMembers())
+        {
+            CollectRoslynNamespaces(member, into);
+        }
     }
 
     /// <summary>Renders the source and compares it to the expected surface.</summary>
