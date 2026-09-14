@@ -17,6 +17,18 @@ public class ApiRenderOptionsTests
     /// <summary>The configuration key for namespace subtrees omitted from the baseline.</summary>
     private const string ExcludedNamespacePrefixesKey = "publicapisharp.excluded_namespace_prefixes";
 
+    /// <summary>The configuration key for attributes explicitly included in the surface.</summary>
+    private const string IncludedAttributesKey = "publicapisharp.included_attributes";
+
+    /// <summary>The configuration key controlling assembly attributes.</summary>
+    private const string IncludeAssemblyAttributesKey = "publicapisharp.include_assembly_attributes";
+
+    /// <summary>The configuration key controlling generated declarations.</summary>
+    private const string IncludeGeneratedCodeKey = "publicapisharp.include_generated_code";
+
+    /// <summary>A name matched by the configured option tests.</summary>
+    private const string MarkerName = "Sample.Marker";
+
     /// <summary>An attribute used across these tests as a stand-in for a real one.</summary>
     private const string ObsoleteAttributeName = "System.ObsoleteAttribute";
 
@@ -100,7 +112,7 @@ public class ApiRenderOptionsTests
 
                                 """;
 
-        var options = Read(("publicapisharp.included_attributes", "System.Reflection.AssemblyVersionAttribute"));
+        var options = Read((IncludedAttributesKey, "System.Reflection.AssemblyVersionAttribute"));
         var rendered = ApiSurfaceTestHost.Render(Source, options);
 
         await Assert.That(rendered).IsEqualTo(Expected.Replace("\r\n", "\n", StringComparison.Ordinal));
@@ -114,7 +126,7 @@ public class ApiRenderOptionsTests
     {
         var options = Read(
             (ExcludedAttributesKey, "Contoso.ThingAttribute"),
-            ("publicapisharp.included_attributes", "Contoso.*"));
+            (IncludedAttributesKey, "Contoso.*"));
 
         await Assert.That(options.IsAttributeExcluded("Contoso.ThingAttribute")).IsTrue();
     }
@@ -196,7 +208,7 @@ public class ApiRenderOptionsTests
 
                                 """;
 
-        var options = Read(("publicapisharp.include_assembly_attributes", "false"));
+        var options = Read((IncludeAssemblyAttributesKey, "false"));
         var rendered = ApiSurfaceTestHost.Render(Source, options);
 
         await Assert.That(rendered).IsEqualTo(Expected.Replace("\r\n", "\n", StringComparison.Ordinal));
@@ -294,7 +306,7 @@ public class ApiRenderOptionsTests
                               }
                               """;
 
-        var options = Read(("publicapisharp.include_generated_code", "true"));
+        var options = Read((IncludeGeneratedCodeKey, "true"));
         var rendered = ApiSurfaceTestHost.Render(Source, options);
 
         await Assert.That(rendered).Contains("public class Generated");
@@ -422,6 +434,92 @@ public class ApiRenderOptionsTests
             rendered,
             PublicApiVerifier.BaselineFileName,
             "publicapisharp.excluded_namespace_prefixes = Removed");
+    }
+
+    /// <summary>Verifies absent settings reuse the immutable defaults with either fallback shape.</summary>
+    /// <param name="hasFileOptions">Whether an empty file-scoped source is supplied.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task UnconfiguredSourcesShareDefaultOptionsAsync(bool hasFileOptions)
+    {
+        var empty = new StubAnalyzerConfigOptions(ImmutableDictionary<string, string>.Empty);
+        var options = ApiRenderOptions.Read(empty, hasFileOptions ? empty : null);
+
+        await Assert.That(options).IsSameReferenceAs(ApiRenderOptions.Default);
+        await Assert.That(options.IncludeGeneratedCode).IsFalse();
+    }
+
+    /// <summary>Verifies explicit defaults, invalid flags and empty lists retain default behavior.</summary>
+    /// <param name="key">The configured option suffix.</param>
+    /// <param name="value">The default-equivalent value.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("include_assembly_attributes", "true")]
+    [Arguments("include_assembly_attributes", "invalid")]
+    [Arguments("include_generated_code", "false")]
+    [Arguments("include_generated_code", "invalid")]
+    [Arguments("excluded_attributes", " , , ")]
+    [Arguments("included_attributes", "")]
+    [Arguments("excluded_namespace_prefixes", " , ")]
+    public async Task DefaultEquivalentSettingsShareDefaultOptionsAsync(string key, string value)
+    {
+        var empty = new StubAnalyzerConfigOptions(ImmutableDictionary<string, string>.Empty);
+        var configured = new StubAnalyzerConfigOptions(ImmutableDictionary<string, string>.Empty.Add($"publicapisharp.{key}", value));
+
+        await Assert.That(ApiRenderOptions.Read(configured, empty)).IsSameReferenceAs(ApiRenderOptions.Default);
+        await Assert.That(ApiRenderOptions.Read(empty, configured)).IsSameReferenceAs(ApiRenderOptions.Default);
+    }
+
+    /// <summary>Verifies every nondefault setting survives global and file-scoped reads.</summary>
+    /// <param name="key">The configured option suffix.</param>
+    /// <param name="value">The nondefault value.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("include_assembly_attributes", "false")]
+    [Arguments("include_generated_code", "true")]
+    [Arguments("excluded_attributes", "Sample.Marker")]
+    [Arguments("included_attributes", "Sample.Marker")]
+    [Arguments("excluded_namespace_prefixes", "Sample.Marker")]
+    public async Task ConfiguredSourcesKeepEveryNondefaultSettingAsync(string key, string value)
+    {
+        var empty = new StubAnalyzerConfigOptions(ImmutableDictionary<string, string>.Empty);
+        var configured = new StubAnalyzerConfigOptions(ImmutableDictionary<string, string>.Empty.Add($"publicapisharp.{key}", value));
+        var global = ApiRenderOptions.Read(configured, empty);
+        var fileScoped = ApiRenderOptions.Read(empty, configured);
+
+        foreach (var options in new[] { global, fileScoped })
+        {
+            await Assert.That(ReferenceEquals(options, ApiRenderOptions.Default)).IsFalse();
+            await Assert.That(options.IncludeAssemblyAttributes).IsEqualTo(key != "include_assembly_attributes");
+            await Assert.That(options.IncludeGeneratedCode).IsEqualTo(key == "include_generated_code");
+            await Assert.That(options.IsAttributeExcluded(MarkerName)).IsEqualTo(key == "excluded_attributes");
+            await Assert.That(options.IsAttributeIncluded(MarkerName)).IsEqualTo(key == "included_attributes");
+            await Assert.That(options.IsNamespaceExcluded(MarkerName)).IsEqualTo(key == "excluded_namespace_prefixes");
+        }
+    }
+
+    /// <summary>Verifies a present global value masks its file-scoped fallback even when it parses to a default.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task GlobalDefaultsAndInvalidFlagsOverrideFileSettingsAsync()
+    {
+        var global = new StubAnalyzerConfigOptions(ImmutableDictionary<string, string>.Empty
+            .Add(IncludeAssemblyAttributesKey, "invalid")
+            .Add(IncludeGeneratedCodeKey, bool.FalseString)
+            .Add(ExcludedAttributesKey, string.Empty)
+            .Add(IncludedAttributesKey, " , ")
+            .Add(ExcludedNamespacePrefixesKey, string.Empty));
+        var fileScoped = new StubAnalyzerConfigOptions(ImmutableDictionary<string, string>.Empty
+            .Add(IncludeAssemblyAttributesKey, bool.FalseString)
+            .Add(IncludeGeneratedCodeKey, bool.TrueString)
+            .Add(ExcludedAttributesKey, "*")
+            .Add(IncludedAttributesKey, "*")
+            .Add(ExcludedNamespacePrefixesKey, "Sample"));
+
+        await Assert.That(ApiRenderOptions.Read(global, fileScoped)).IsSameReferenceAs(ApiRenderOptions.Default);
+        await Assert.That(ApiRenderOptions.Default.IsAttributeExcluded(ObsoleteAttributeName)).IsFalse();
     }
 
     /// <summary>Builds options from the given editorconfig entries.</summary>

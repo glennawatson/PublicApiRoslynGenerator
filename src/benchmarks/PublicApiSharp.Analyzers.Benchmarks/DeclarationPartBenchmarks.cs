@@ -147,11 +147,6 @@ public class DeclarationPartBenchmarks
     [Benchmark]
     public string ConstraintClause() => Compose(builder => ApiConstraints.AppendClause(builder, _typeParameter));
 
-    /// <summary>Collects one type parameter's constraints in the order C# requires.</summary>
-    /// <returns>The number of parts, so the work cannot be optimized away.</returns>
-    [Benchmark]
-    public int ConstraintParts() => ApiConstraints.Parts(_typeParameter).Count;
-
     /// <summary>Escapes an identifier that collides with a keyword.</summary>
     /// <returns>The escaped identifier.</returns>
     [Benchmark]

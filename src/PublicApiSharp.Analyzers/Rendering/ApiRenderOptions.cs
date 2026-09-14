@@ -77,13 +77,19 @@ internal sealed class ApiRenderOptions
     /// why a file's options are consulted as well. A setting of this kind is meant to be written
     /// once for the project rather than varied between files.
     /// </remarks>
-    internal static ApiRenderOptions Read(AnalyzerConfigOptions options, AnalyzerConfigOptions? fileScoped = null) =>
-        new(
-            ReadFlag(options, fileScoped, $"{Prefix}include_assembly_attributes", true),
-            ReadFlag(options, fileScoped, $"{Prefix}include_generated_code", false),
-            AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}excluded_attributes"),
-            AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}included_attributes"),
-            AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}excluded_namespace_prefixes"));
+    internal static ApiRenderOptions Read(AnalyzerConfigOptions options, AnalyzerConfigOptions? fileScoped = null)
+    {
+        var includeAssemblyAttributes = ReadFlag(options, fileScoped, $"{Prefix}include_assembly_attributes", true);
+        var includeGeneratedCode = ReadFlag(options, fileScoped, $"{Prefix}include_generated_code", false);
+        var excludedAttributes = AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}excluded_attributes");
+        var includedAttributes = AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}included_attributes");
+        var excludedNamespacePrefixes = AnalyzerOptionReader.ReadCommaSeparatedList(options, fileScoped, $"{Prefix}excluded_namespace_prefixes");
+
+        return includeAssemblyAttributes && !includeGeneratedCode
+            && excludedAttributes.Length == 0 && includedAttributes.Length == 0 && excludedNamespacePrefixes.Length == 0
+            ? Default
+            : new(includeAssemblyAttributes, includeGeneratedCode, excludedAttributes, includedAttributes, excludedNamespacePrefixes);
+    }
 
     /// <summary>Determines whether configuration excludes an attribute.</summary>
     /// <param name="fullName">The attribute type's fully qualified name.</param>

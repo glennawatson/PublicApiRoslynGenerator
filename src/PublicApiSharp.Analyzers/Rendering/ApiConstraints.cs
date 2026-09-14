@@ -2,8 +2,6 @@
 // Glenn Watson and Contributors licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for full license information.
 
-using System.Collections.Generic;
-
 namespace PublicApiSharp.Analyzers;
 
 /// <summary>Renders the <c>where</c> clauses of a generic type or method.</summary>
@@ -32,68 +30,66 @@ internal static class ApiConstraints
     /// <param name="typeParameter">The type parameter.</param>
     internal static void AppendClause(PooledStringBuilder builder, ITypeParameterSymbol typeParameter)
     {
-        var parts = Parts(typeParameter);
-        if (parts.Count == 0)
-        {
-            return;
-        }
-
-        _ = builder.Append(" where ").Append(typeParameter.Name).Append(" : ");
-        for (var i = 0; i < parts.Count; i++)
-        {
-            if (i > 0)
-            {
-                _ = builder.Append(", ");
-            }
-
-            _ = builder.Append(parts[i]);
-        }
-    }
-
-    /// <summary>Collects a type parameter's constraints in the order C# requires them.</summary>
-    /// <param name="typeParameter">The type parameter.</param>
-    /// <returns>The constraint texts.</returns>
-    internal static List<string> Parts(ITypeParameterSymbol typeParameter)
-    {
-        var parts = new List<string>();
+        var hasParts = false;
 
         // The primary constraint comes first and there is at most one. 'unmanaged' also sets the
         // value-type flag, so it has to win to avoid writing both.
         if (typeParameter.HasUnmanagedTypeConstraint)
         {
-            parts.Add("unmanaged");
+            AppendPart(builder, typeParameter, "unmanaged", ref hasParts);
         }
         else if (typeParameter.HasValueTypeConstraint)
         {
-            parts.Add("struct");
+            AppendPart(builder, typeParameter, "struct", ref hasParts);
         }
         else if (typeParameter.HasReferenceTypeConstraint)
         {
-            parts.Add(typeParameter.ReferenceTypeConstraintNullableAnnotation == NullableAnnotation.Annotated
+            var part = typeParameter.ReferenceTypeConstraintNullableAnnotation == NullableAnnotation.Annotated
                 ? "class?"
-                : "class");
+                : "class";
+            AppendPart(builder, typeParameter, part, ref hasParts);
         }
         else if (typeParameter.HasNotNullConstraint)
         {
-            parts.Add("notnull");
+            AppendPart(builder, typeParameter, "notnull", ref hasParts);
         }
 
         foreach (var constraintType in typeParameter.ConstraintTypes)
         {
-            parts.Add(constraintType.ToDisplayString(ApiDisplayFormats.TypeReference));
+            AppendPart(builder, typeParameter, constraintType.ToDisplayString(ApiDisplayFormats.TypeReference), ref hasParts);
         }
 
         // 'new()' is always last except for the ref-struct permission that follows it.
         if (typeParameter.HasConstructorConstraint)
         {
-            parts.Add("new()");
+            AppendPart(builder, typeParameter, "new()", ref hasParts);
         }
 
-        if (RoslynFeatures.AllowsRefLikeType(typeParameter))
+        if (!RoslynFeatures.AllowsRefLikeType(typeParameter))
         {
-            parts.Add("allows ref struct");
+            return;
         }
 
-        return parts;
+        AppendPart(builder, typeParameter, "allows ref struct", ref hasParts);
+    }
+
+    /// <summary>Starts the clause on its first part and separates subsequent parts.</summary>
+    /// <param name="builder">The declaration builder.</param>
+    /// <param name="typeParameter">The parameter whose clause is being written.</param>
+    /// <param name="part">The next constraint text.</param>
+    /// <param name="hasParts">Whether the clause has already started.</param>
+    private static void AppendPart(PooledStringBuilder builder, ITypeParameterSymbol typeParameter, string part, ref bool hasParts)
+    {
+        if (hasParts)
+        {
+            _ = builder.Append(", ");
+        }
+        else
+        {
+            _ = builder.Append(" where ").Append(typeParameter.Name).Append(" : ");
+            hasParts = true;
+        }
+
+        _ = builder.Append(part);
     }
 }

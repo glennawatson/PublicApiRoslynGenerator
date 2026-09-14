@@ -130,7 +130,7 @@ public class ComponentBenchmarks
     public int NamespaceRecord() => new ApiSurfaceRenderer.NamespaceTypes("Sample", _type.ContainingNamespace, _types).Types.Count;
 
     /// <summary>Reads an unconfigured compilation's render options.</summary>
-    /// <returns>The newly constructed options.</returns>
+    /// <returns>The shared default options.</returns>
     [Benchmark]
     public object DefaultOptions() => ApiRenderOptions.Read(_empty);
 

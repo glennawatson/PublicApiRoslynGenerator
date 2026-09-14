@@ -345,6 +345,51 @@ public class ApiSurfaceRenderingEdgeCaseTests
         await Assert.That(ApiSurfaceTestHost.Render(Source)).Contains("where T : class, IA, IB, IC, ID, new()");
     }
 
+    /// <summary>Verifies direct clause appends preserve existing text and constraint order.</summary>
+    /// <param name="clause">The source constraint clause.</param>
+    /// <param name="expected">The exact appended clause, including its leading space.</param>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    [Arguments("", "")]
+    [Arguments("where T : unmanaged", " where T : unmanaged")]
+    [Arguments("where T : struct", " where T : struct")]
+    [Arguments("where T : class", " where T : class")]
+    [Arguments("where T : class?", " where T : class?")]
+    [Arguments("where T : notnull", " where T : notnull")]
+    [Arguments("where T : new()", " where T : new()")]
+    [Arguments("where T : IZ, IA", " where T : IZ, IA")]
+    [Arguments("where T : class?, IZ, IA, new()", " where T : class?, IZ, IA, new()")]
+    public async Task ConstraintClauseAppendsInPlaceAsync(string clause, string expected)
+    {
+        var compilation = ApiSurfaceTestHost.Compile($"public interface IA {{ }} public interface IZ {{ }} public class C<T> {clause} {{ }}");
+        var parameter = compilation.GetTypeByMetadataName("C`1")!.TypeParameters[0];
+        var builder = new PooledStringBuilder();
+        _ = builder.Append("prefix");
+
+        ApiConstraints.AppendClause(builder, parameter);
+
+        await Assert.That(builder.ToString()).IsEqualTo($"prefix{expected}");
+    }
+
+    /// <summary>Verifies constructor and ref-struct constraints stay last in a direct append.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    [Test]
+    public async Task ConstructorPrecedesRefStructPermissionInAppendedClauseAsync()
+    {
+        if (!RoslynFeatures.SupportsRefStructConstraints)
+        {
+            return;
+        }
+
+        const string Source = "public interface IZ { } public interface IA { } public class C<T> where T : IZ, IA, new(), allows ref struct { }";
+        var compilation = ApiSurfaceTestHost.Compile(Source);
+        var builder = new PooledStringBuilder();
+
+        ApiConstraints.AppendClause(builder, compilation.GetTypeByMetadataName("C`1")!.TypeParameters[0]);
+
+        await Assert.That(builder.ToString()).IsEqualTo(" where T : IZ, IA, new(), allows ref struct");
+    }
+
     /// <summary>Verifies attribute arguments render, with named ones sorted after positional ones.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>Named arguments are unordered in source, so sorting keeps the baseline stable.</remarks>
