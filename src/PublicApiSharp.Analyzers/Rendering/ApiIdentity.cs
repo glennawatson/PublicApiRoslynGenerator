@@ -35,6 +35,26 @@ internal static class ApiIdentity
         return builder.ToString();
     }
 
+    /// <summary>Builds the constraint clauses that separate declarations sharing one identity.</summary>
+    /// <param name="symbol">The declared symbol.</param>
+    /// <returns>
+    /// The clauses without whitespace, empty for an unconstrained generic method, and
+    /// <see langword="null"/> for a declaration that cannot carry any.
+    /// </returns>
+    internal static string? ConstraintsOf(ISymbol symbol)
+    {
+        if (symbol is not IMethodSymbol { TypeParameters.IsEmpty: false } method)
+        {
+            return null;
+        }
+
+        var clauses = new PooledStringBuilder();
+        ApiConstraints.Append(clauses, method.TypeParameters);
+        var builder = new PooledStringBuilder();
+        AppendWithoutWhitespace(builder, clauses.ToString());
+        return builder.ToString();
+    }
+
     /// <summary>Builds the identity of an assembly-level attribute application.</summary>
     /// <param name="rendered">The attribute as the surface writes it, without its brackets.</param>
     /// <returns>The identity.</returns>

@@ -24,6 +24,11 @@ namespace PublicApiSharp.Analyzers;
 /// </param>
 /// <param name="Span">The declaration's span, attributes included, within that same surface.</param>
 /// <param name="IsExtensionBlock">Whether matching must distinguish headers sharing one receiver identity.</param>
+/// <param name="Constraints">
+/// A generic method's <c>where</c> clauses without whitespace, and <see langword="null"/> for a
+/// declaration that cannot carry any. Constraints give <c>T?</c> two meanings, so two overloads over
+/// it print one <paramref name="Identity"/> and only the clauses say which is which.
+/// </param>
 /// <remarks>
 /// <para>
 /// A record because that is exactly what it is: two entries built from the same values describe
@@ -36,4 +41,10 @@ namespace PublicApiSharp.Analyzers;
 /// more than the per-instance allocation it removed: 819 MB against 899 MB over the same run.
 /// </para>
 /// </remarks>
-internal sealed record ApiDeclaration(string Identity, string Text, int StartLine, TextSpan Span, bool IsExtensionBlock = false);
+internal sealed record ApiDeclaration(
+    string Identity,
+    string Text,
+    int StartLine,
+    TextSpan Span,
+    bool IsExtensionBlock = false,
+    string? Constraints = null);

@@ -150,7 +150,8 @@ internal sealed class RenderedApiSurface
                 Normalize(Text, written.Start, written.End),
                 written.Line,
                 new TextSpan(written.Start, written.End - written.Start),
-                written.Symbol is INamedTypeSymbol type && RoslynFeatures.IsExtensionContainer(type)));
+                written.Symbol is INamedTypeSymbol type && RoslynFeatures.IsExtensionContainer(type),
+                written.Symbol is { } declared ? ApiIdentity.ConstraintsOf(declared) : null));
         }
 
         return builder.MoveToImmutable();

@@ -72,15 +72,15 @@ internal sealed class ApiComparisonState
         {
             if (surface.SymbolAtLine(declaration.StartLine) is { } symbol)
             {
-                if (declaration.IsExtensionBlock)
+                if (Discriminator(declaration) is null)
                 {
-                    var key = ComparisonIdentity(declaration);
-                    PairExtensionBlock(declaration, key, baselineByIdentity, currentIdentities);
-                    declarationsBySymbol[symbol] = declaration with { Identity = key };
+                    declarationsBySymbol[symbol] = declaration;
                 }
                 else
                 {
-                    declarationsBySymbol[symbol] = declaration;
+                    var key = ComparisonIdentity(declaration);
+                    Pair(declaration, key, baselineByIdentity, currentIdentities);
+                    declarationsBySymbol[symbol] = declaration with { Identity = key };
                 }
             }
         }
@@ -134,27 +134,40 @@ internal sealed class ApiComparisonState
         return identities;
     }
 
-    /// <summary>Distinguishes extension headers without changing the identities of their members.</summary>
+    /// <summary>
+    /// What separates two declarations an identity alone cannot tell apart: the whole header for an
+    /// extension block, the constraint clauses for a generic method, and nothing for anything else.
+    /// </summary>
+    /// <param name="declaration">The declaration.</param>
+    /// <returns>The discriminator, or <see langword="null"/> when the identity already suffices.</returns>
+    private static string? Discriminator(ApiDeclaration declaration) =>
+        declaration.IsExtensionBlock ? declaration.Text : declaration.Constraints;
+
+    /// <summary>Distinguishes ambiguous declarations without changing the identities of their members.</summary>
     /// <param name="declaration">The declaration to index.</param>
-    /// <returns>The comparison key, including the full text for an extension block.</returns>
+    /// <returns>The comparison key, including the discriminator where there is one.</returns>
     private static string ComparisonIdentity(ApiDeclaration declaration)
     {
-        if (!declaration.IsExtensionBlock)
+        if (Discriminator(declaration) is not { } discriminator)
         {
             return declaration.Identity;
         }
 
         var builder = new PooledStringBuilder();
-        _ = builder.Append(declaration.Identity).Append('\n').Append(declaration.Text);
+        _ = builder.Append(declaration.Identity).Append('\n').Append(discriminator);
         return builder.ToString();
     }
 
-    /// <summary>Pairs a changed header with an unclaimed baseline block after reserving exact matches.</summary>
-    /// <param name="declaration">The current extension block.</param>
+    /// <summary>Pairs a changed declaration with an unclaimed baseline entry after reserving exact matches.</summary>
+    /// <param name="declaration">The current declaration.</param>
     /// <param name="key">Its full comparison key.</param>
-    /// <param name="baseline">The baseline index, updated to use the current key for a matched block.</param>
+    /// <param name="baseline">The baseline index, updated to use the current key for a matched entry.</param>
     /// <param name="current">All current keys, including exact matches that must remain reserved.</param>
-    private static void PairExtensionBlock(
+    /// <remarks>
+    /// Without this, editing the part that discriminates reads as one declaration removed and
+    /// another added, when it is the same member declared differently.
+    /// </remarks>
+    private static void Pair(
         ApiDeclaration declaration,
         string key,
         Dictionary<string, ApiDeclaration> baseline,
@@ -167,7 +180,8 @@ internal sealed class ApiComparisonState
 
         foreach (var candidate in baseline)
         {
-            if (candidate.Value.IsExtensionBlock
+            if (Discriminator(candidate.Value) is not null
+                && candidate.Value.IsExtensionBlock == declaration.IsExtensionBlock
                 && string.Equals(candidate.Value.Identity, declaration.Identity, StringComparison.Ordinal)
                 && Array.BinarySearch(current, candidate.Key, StringComparer.Ordinal) < 0)
             {

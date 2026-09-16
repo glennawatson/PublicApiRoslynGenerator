@@ -189,6 +189,29 @@ internal static partial class ApiTextParser
         return builder.Append(')').ToString();
     }
 
+    /// <summary>Renders constraint clauses as the part of a key that tells two declarations apart.</summary>
+    /// <param name="clauses">The clauses, in the order they are written.</param>
+    /// <returns>The clauses without whitespace, or an empty string when there are none.</returns>
+    /// <remarks>
+    /// Clauses are ordered by the type parameter they constrain, which the renderer follows, so the
+    /// text is stable for a given declaration rather than dependent on how one was typed.
+    /// </remarks>
+    internal static string Constraints(SyntaxList<TypeParameterConstraintClauseSyntax> clauses)
+    {
+        if (clauses.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new PooledStringBuilder();
+        foreach (var clause in clauses)
+        {
+            _ = builder.Append(RemoveWhitespace(clause.ToString()));
+        }
+
+        return builder.ToString();
+    }
+
     /// <summary>
     /// Strips the indentation a declaration carries because of where it sits in the file, so the
     /// same member compares equal regardless of nesting depth and reads cleanly in a diagnostic.
@@ -298,7 +321,12 @@ internal static partial class ApiTextParser
             case MethodDeclarationSyntax method:
             {
                 var name = Combine(container, MemberName(method.ExplicitInterfaceSpecifier, method.Identifier));
-                Add(builder, text, $"{name}{ArityMarker(Arity(method.TypeParameterList))}{Parameters(method.ParameterList)}", method.Span);
+                Add(
+                    builder,
+                    text,
+                    $"{name}{ArityMarker(Arity(method.TypeParameterList))}{Parameters(method.ParameterList)}",
+                    method.Span,
+                    constraints: method.TypeParameterList is null ? null : Constraints(method.ConstraintClauses));
                 break;
             }
 
@@ -405,18 +433,21 @@ internal static partial class ApiTextParser
     /// <param name="identity">The declaration's identity.</param>
     /// <param name="span">The declaration's span.</param>
     /// <param name="isExtensionBlock">Whether this declaration is an extension block header.</param>
+    /// <param name="constraints">The declaration's constraint clauses, or <see langword="null"/> when it can carry none.</param>
     private static void Add(
         ImmutableArray<ApiDeclaration>.Builder builder,
         SourceText text,
         string identity,
         TextSpan span,
-        bool isExtensionBlock = false) =>
+        bool isExtensionBlock = false,
+        string? constraints = null) =>
         builder.Add(new(
             identity,
             NormalizeText(text.ToString(span)),
             text.Lines.GetLineFromPosition(span.Start).LineNumber,
             span,
-            isExtensionBlock));
+            isExtensionBlock,
+            constraints));
 
     /// <summary>Unescapes ordinary namespace names and preserves other name syntax as text.</summary>
     /// <param name="name">The namespace name.</param>

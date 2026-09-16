@@ -180,6 +180,37 @@ public class ApiComparisonStateTests
         await ApiTextComparisonTests.AssertFullComparisonAsync(compilation, SourceText.From(surface.Text + surface.Text), 0);
     }
 
+    /// <summary>Verifies a changed extension header and a changed constraint each pair with their own entry.</summary>
+    /// <returns>A task representing the asynchronous test operation.</returns>
+    /// <remarks>
+    /// Both are keyed by more than their identity, so each has to find the baseline entry that is
+    /// its own kind of declaration rather than the other's.
+    /// </remarks>
+    [Test]
+    public async Task ChangedHeaderAndChangedConstraintPairSeparatelyAsync()
+    {
+        const int ChangedCount = 2;
+        if (!RoslynFeatures.SupportsExtensionBlocks)
+        {
+            return;
+        }
+
+        const string Snippet = """
+            public static class Extensions
+            {
+                public static T Pick<T>(T value) where T : class => value;
+
+                extension(string text) { public int Size => text.Length; }
+            }
+            """;
+        var compilation = ApiSurfaceTestHost.Compile(Snippet);
+        var baseline = ApiSurfaceTestHost.Render(Snippet)
+            .Replace("where T : class", "where T : notnull", StringComparison.Ordinal)
+            .Replace("extension(string text)", "extension(string other)", StringComparison.Ordinal);
+
+        await ApiTextComparisonTests.AssertFullComparisonAsync(compilation, SourceText.From(baseline), ChangedCount);
+    }
+
     /// <summary>Verifies types differing only by case or generic arity occupy distinct comparison entries.</summary>
     /// <returns>A task representing the asynchronous test operation.</returns>
     [Test]

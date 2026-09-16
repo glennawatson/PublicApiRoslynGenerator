@@ -247,6 +247,15 @@ public class ApiIdentityEquivalenceTests
             {
                 mismatches.Add($"identity {symbol.Kind} {symbol.Name}: text='{declaration.Identity}' symbol='{fromSymbol}'");
             }
+
+            // The clauses separate two overloads an identity cannot, so they are keyed alongside it
+            // and have to be derived alike from both sides.
+            var constraintsFromSymbol = ApiIdentity.ConstraintsOf(symbol);
+            if (!string.Equals(constraintsFromSymbol, declaration.Constraints, StringComparison.Ordinal))
+            {
+                mismatches.Add(
+                    $"constraints {symbol.Kind} {symbol.Name}: text='{declaration.Constraints}' symbol='{constraintsFromSymbol}'");
+            }
         }
 
         // The comparison reports a change by comparing texts, so the two sides have to agree on the
