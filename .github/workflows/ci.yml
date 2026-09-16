@@ -1,62 +1,48 @@
-name: CI Build
+name: Build
 
 on:
-    push:
-        branches: [ main ]
-    pull_request:
-        branches: [ main ]
+  push:
+    branches: [ main ]
+    paths-ignore: [ '.github/**' ]
+  pull_request:
+    branches: [ main ]
+    paths-ignore: [ '.github/**' ]
 
 permissions:
-    contents: read
+  contents: read
 
-env:
-    DOTNET_NOLOGO: true
-    DOTNET_CLI_TELEMETRY_OPTOUT: true
-    DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-    build:
-        strategy:
-            fail-fast: false
-            matrix:
-                os: [ windows-latest, ubuntu-latest, macos-latest ]
-        runs-on: ${{ matrix.os }}
-        env:
-            # MinVer is tag-first; on CI commits past the latest tag it would otherwise
-            # walk git per project. Pin a deterministic CI version so every project
-            # stamps the same value without the walk.
-            MINVERVERSIONOVERRIDE: 0.0.0-ci.0+${{ github.sha }}
-        steps:
-            -   name: Checkout
-                uses: actions/checkout@v7
-                with:
-                    fetch-depth: 0
-                    fetch-tags: true
+  build:
+    name: Build and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-latest, ubuntu-latest, macos-latest ]
+    runs-on: ${{ matrix.os }}
+    env:
+      DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
-            -   name: Setup .NET
-                uses: actions/setup-dotnet@v6
-                with:
-                    dotnet-version: |
-                        8.0.x
-                        10.0.x
+      - name: Setup .NET Environment
+        uses: ./.github/actions/dotnet-environment
 
-            -   name: Restore
-                working-directory: src
-                shell: bash
-                run: |
-                    # The analyzer and code fix are built once per Roslyn slot, and each slot is a
-                    # separate project instance with its own obj/. Restoring the solution only
-                    # covers the default slot, so restore each one explicitly.
-                    dotnet restore PublicApiSharp.Analyzers.slnx
-                    for slot in roslyn4.8 roslyn4.14 roslyn5.3 roslyn5.6; do
-                      dotnet restore PublicApiSharp.Analyzers/PublicApiSharp.Analyzers.csproj -p:RoslynVersion=$slot
-                      dotnet restore PublicApiSharp.Analyzers.CodeFixes/PublicApiSharp.Analyzers.CodeFixes.csproj -p:RoslynVersion=$slot
-                    done
+      - name: Restore Roslyn slots
+        uses: ./.github/actions/restore-roslyn-slots
 
-            -   name: Build
-                working-directory: src
-                run: dotnet build PublicApiSharp.Analyzers.slnx --no-restore --configuration Release
+      - name: Build
+        uses: ./.github/actions/dotnet-build
+        with:
+          solution-file: PublicApiSharp.Analyzers.slnx
 
-            -   name: Test
-                working-directory: src
-                run: dotnet test --solution PublicApiSharp.Analyzers.slnx --no-build --configuration Release
+      - name: Test
+        uses: ./.github/actions/dotnet-test
+        with:
+          solution-file: PublicApiSharp.Analyzers.slnx

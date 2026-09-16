@@ -1,0 +1,77 @@
+name: Restore Roslyn slots
+description: |
+  Restore the analyzer and code-fix projects once for every Roslyn slot.
+
+  A slot is a separate project instance with its own obj/, so restoring the solution covers only the
+  default slot and a later `--no-restore` build of any other slot fails on the missing assets file.
+  Run this before dotnet-build.
+
+inputs:
+  src-folder:
+    description: 'Folder containing the solution and the per-slot projects.'
+    required: false
+    default: 'src'
+  projects:
+    description: 'Newline-separated project paths, relative to src-folder, that build once per slot.'
+    required: false
+    default: |
+      PublicApiSharp.Analyzers/PublicApiSharp.Analyzers.csproj
+      PublicApiSharp.Analyzers.CodeFixes/PublicApiSharp.Analyzers.CodeFixes.csproj
+  slots:
+    description: 'Newline-separated RoslynVersion slot names.'
+    required: false
+    default: |
+      roslyn4.8
+      roslyn4.14
+      roslyn5.3
+      roslyn5.6
+
+runs:
+  using: composite
+  steps:
+    - name: Restore every slot
+      shell: bash
+      env:
+        SRC_FOLDER: ${{ inputs.src-folder }}
+        PROJECTS: ${{ inputs.projects }}
+        SLOTS: ${{ inputs.slots }}
+      run: |
+        cd "$RUNNER_TEMP" && dotnet run - -- "$SRC_FOLDER" "$PROJECTS" "$SLOTS" <<'CS'
+        using System.Diagnostics;
+        using static System.Environment;
+
+        if (args is not [var srcFolder, var projectList, var slotList])
+        {
+            Console.WriteLine("::error::Expected the source folder, projects and slots arguments.");
+            return 2;
+        }
+
+        string[] projects = Split(projectList), slots = Split(slotList);
+        if (projects is [] || slots is [])
+        {
+            Console.WriteLine("::error::Both 'projects' and 'slots' must name at least one entry.");
+            return 2;
+        }
+
+        Directory.SetCurrentDirectory(Path.Combine(GetEnvironmentVariable("GITHUB_WORKSPACE")!, srcFolder));
+
+        foreach (var slot in slots)
+        {
+            foreach (var project in projects)
+            {
+                Console.WriteLine($"::group::restore {slot} {project}");
+                var restore = Process.Run("dotnet", ["restore", project, $"-p:RoslynVersion={slot}"]);
+                Console.WriteLine("::endgroup::");
+
+                if (restore is { ExitCode: not 0 })
+                {
+                    Console.WriteLine($"::error::Restoring {project} for {slot} exited with {restore.ExitCode}");
+                    return restore.ExitCode;
+                }
+            }
+        }
+
+        return 0;
+
+        static string[] Split(string value) => value.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        CS
