@@ -58,8 +58,11 @@ Three pieces, in the order data flows through them:
 
 - **Additions and changes are reported from a symbol action.** A diagnostic raised by a compilation
   action is not local to a document, and Roslyn refuses to offer a code fix for one. Moving PAS0001
-  or PAS0003 to a compilation-end action silently costs the lightbulb. Removals genuinely have no
-  symbol left to point at, so they stay at compilation end and get no fix (see `docs/rules/PAS0002.md`).
+  or PAS0003 to a compilation-end action silently costs the lightbulb. Removals (PAS0002) genuinely
+  have no symbol left to point at, and a missing baseline (PAS0004) has no location at all, so both
+  stay at compilation end. The provider still registers the baseline rewrite for them, taking the
+  project from `CodeFixContext.TextDocument`, so a host that asks (fix-all, tooling that calls the
+  provider directly) can fix them; do not rely on an IDE lightbulb for either.
 - **The renderer's output must parse back.** `ApiComparisonState` bails out silently if it does not,
   because that is this package's bug rather than the user's. `RenderedSurfaceParsesBackAsync` guards
   it; anything emitted that C# cannot re-read is a defect.
