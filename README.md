@@ -94,9 +94,9 @@ reviewer reads is the API change itself, not a later promotion.
 | Id | Rule | Severity | Fix |
 | --- | --- | --- | --- |
 | [PAS0001](docs/rules/PAS0001.md) | Public API is not in the baseline | Error | Yes |
-| [PAS0002](docs/rules/PAS0002.md) | Public API in the baseline no longer exists | Error | See the page |
+| [PAS0002](docs/rules/PAS0002.md) | Public API in the baseline no longer exists | Error | Yes |
 | [PAS0003](docs/rules/PAS0003.md) | Public API differs from the baseline | Error | Yes |
-| [PAS0004](docs/rules/PAS0004.md) | No public API baseline for this target framework | Warning, off | No |
+| [PAS0004](docs/rules/PAS0004.md) | No public API baseline for this target framework | Warning, off | Yes |
 | [PAS0005](docs/rules/PAS0005.md) | Public API baseline could not be read | Error | No |
 
 Additions and changes are reported on the declaration in your source. Removals are reported on the

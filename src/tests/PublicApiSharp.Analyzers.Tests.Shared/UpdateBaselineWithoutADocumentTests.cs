@@ -11,9 +11,9 @@ namespace PublicApiSharp.Analyzers.Tests;
 
 /// <summary>Tests the code fix's behaviour when there is nothing for it to write to.</summary>
 /// <remarks>
-/// The lightbulb is only offered for a diagnostic the analyzer raised, which implies a baseline
-/// exists. A fix-all can still be invoked across a solution where some project has none, so the
-/// no-document case has to leave that project alone rather than throw.
+/// A project without a baseline gets one created only when the package resolved a path for it (see
+/// <see cref="UpdateBaselineOutsideSourceTests"/>). A fix-all can still be invoked across a solution
+/// where some project has neither, so that case has to leave the project alone rather than throw.
 /// </remarks>
 public class UpdateBaselineWithoutADocumentTests
 {

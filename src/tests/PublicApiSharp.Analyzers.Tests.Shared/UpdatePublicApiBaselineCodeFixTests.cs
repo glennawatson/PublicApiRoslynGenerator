@@ -67,9 +67,9 @@ public class UpdatePublicApiBaselineCodeFixTests
     /// <summary>Verifies accepting an addition also drops an entry whose member is gone.</summary>
     /// <returns>A task that represents the asynchronous test operation.</returns>
     /// <remarks>
-    /// A removal on its own is reported against the baseline file, which is not a document, so it
-    /// never gets a lightbulb of its own. The fix regenerates the whole file rather than editing
-    /// lines, so invoking it from any diagnostic that does sit in source clears the stale entry too.
+    /// A removal is reported against the baseline file, an additional document rather than source.
+    /// The fix regenerates the whole file rather than editing lines, so invoking it from any
+    /// diagnostic that does sit in source clears the stale entry too.
     /// </remarks>
     [Test]
     public async Task AcceptingAnAdditionAlsoDropsARemovedEntryAsync()
