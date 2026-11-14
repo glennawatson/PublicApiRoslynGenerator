@@ -71,7 +71,7 @@ Three pieces, in the order data flows through them:
 
 - **No suppressions.** Never `#pragma warning disable`, `<NoWarn>`, `[SuppressMessage]`, or an
   `.editorconfig` severity drop to silence a rule — fix the cause. The repo builds its own source
-  under `TreatWarningsAsErrors` with StyleSharp, PerformanceSharp, SecuritySharp, Roslynator and
+  under `TreatWarningsAsErrors` with StyleSharp, PerformanceSharp, SecuritySharp and
   SonarAnalyzer.
 
 - **Never touch `.editorconfig`, or add a nested one, without asking.** That includes scoping a rule

@@ -24,7 +24,6 @@ jobs:
       minverMinimumMajorMinor: '1.0'
       minverAutoIncrement: 'patch'
       dotnetVersions: |
-        8.0.x
         10.0.x
         11.0.x
       restoreRoslynSlots: true

@@ -30,17 +30,17 @@ internal static class RoslynFeatures
     internal static bool SupportsUserDefinedCompoundAssignment => false;
 
     /// <summary>Determines whether a type is a C# 14 extension container rather than a normal nested type.</summary>
-    /// <param name="type">The type.</param>
+    /// <param name="_">The type, unused on this compiler.</param>
     /// <returns><see langword="true"/> when the type is an extension container.</returns>
-    internal static bool IsExtensionContainer(INamedTypeSymbol type) => false;
+    internal static bool IsExtensionContainer(INamedTypeSymbol _) => false;
 
     /// <summary>Determines whether a type parameter permits a ref struct argument.</summary>
-    /// <param name="typeParameter">The type parameter.</param>
+    /// <param name="_">The type parameter, unused on this compiler.</param>
     /// <returns><see langword="true"/> when the constraint list ends with <c>allows ref struct</c>.</returns>
-    internal static bool AllowsRefLikeType(ITypeParameterSymbol typeParameter) => false;
+    internal static bool AllowsRefLikeType(ITypeParameterSymbol _) => false;
 
     /// <summary>Gets the receiver an extension container extends.</summary>
-    /// <param name="type">The extension container.</param>
+    /// <param name="_">The extension container, unused on this compiler.</param>
     /// <returns>The receiver parameter, or <see langword="null"/> when the host cannot express one.</returns>
-    internal static IParameterSymbol? ExtensionReceiver(INamedTypeSymbol type) => null;
+    internal static IParameterSymbol? ExtensionReceiver(INamedTypeSymbol _) => null;
 }

@@ -28,8 +28,9 @@ internal static class ApiAttributeRenderer
     /// a version bump is not an API change — and would restate the target framework that the
     /// baseline's own folder already names.
     /// </remarks>
-    private static readonly HashSet<string> NotPartOfTheApi = new(StringComparer.Ordinal)
-    {
+    private static readonly HashSet<string> NotPartOfTheApi =
+    [
+        with(StringComparer.Ordinal),
         "System.CodeDom.Compiler.GeneratedCodeAttribute",
         "System.Reflection.AssemblyCultureAttribute",
         "System.Reflection.AssemblyDelaySignAttribute",
@@ -68,7 +69,7 @@ internal static class ApiAttributeRenderer
         "System.Runtime.CompilerServices.NullableContextAttribute",
         "System.Runtime.CompilerServices.RequiredMemberAttribute",
         "System.Runtime.CompilerServices.RuntimeCompatibilityAttribute",
-    };
+    ];
 
     /// <summary>Renders a symbol's attributes as one bracketed line each, in a stable order.</summary>
     /// <param name="builder">The builder to append to.</param>

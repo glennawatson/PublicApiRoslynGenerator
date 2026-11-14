@@ -31,7 +31,6 @@ updates:
         patterns:
           - "Microsoft.CodeAnalysis.Analyzers"
           - "*.Analyzers"
-          - "Roslynator.*"
           - "SonarAnalyzer.*"
       versioning:
         patterns:

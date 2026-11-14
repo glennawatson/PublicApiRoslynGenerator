@@ -146,6 +146,6 @@ public class BaselineParsingBenchmarks
             }
         }
 
-        throw new InvalidOperationException($"The rendered surface has no matching {nameof(T)}.");
+        throw new InvalidOperationException($"The rendered surface has no matching {typeof(T).Name}.");
     }
 }
