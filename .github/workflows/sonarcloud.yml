@@ -30,7 +30,7 @@ jobs:
       uses: glennawatson/actions-common/.github/actions/sonarcloud@main
       with:
         extra-begin-args: |
-          /d:sonar.issue.ignore.multicriteria=nullForgiving,nullChecks,linqLoops
+          /d:sonar.issue.ignore.multicriteria=nullForgiving,nullChecks
           /d:sonar.issue.ignore.multicriteria.nullForgiving.ruleKey=csharpsquid:S8969
           /d:sonar.issue.ignore.multicriteria.nullForgiving.resourceKey=**/*.cs
           /d:sonar.issue.ignore.multicriteria.nullChecks.ruleKey=csharpsquid:S2589
@@ -45,7 +45,7 @@ jobs:
         test-exclusions: '**/tests/**,**/benchmarks/**'
         working-directory: src
     - name: Restore Roslyn slots
-      uses: glennawatson/actions-common/.github/actions/restore-roslyn-slots@main
+      uses: ./.github/actions/restore-roslyn-slots
     - name: Build
       uses: glennawatson/actions-common/.github/actions/dotnet-build@main
       with:
@@ -59,7 +59,7 @@ jobs:
       uses: glennawatson/actions-common/.github/actions/sonarcloud@main
       with:
         extra-begin-args: |
-          /d:sonar.issue.ignore.multicriteria=nullForgiving,nullChecks,linqLoops
+          /d:sonar.issue.ignore.multicriteria=nullForgiving,nullChecks
           /d:sonar.issue.ignore.multicriteria.nullForgiving.ruleKey=csharpsquid:S8969
           /d:sonar.issue.ignore.multicriteria.nullForgiving.resourceKey=**/*.cs
           /d:sonar.issue.ignore.multicriteria.nullChecks.ruleKey=csharpsquid:S2589

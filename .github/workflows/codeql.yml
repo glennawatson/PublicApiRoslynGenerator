@@ -35,7 +35,7 @@ jobs:
         build-mode: manual
         queries: security-extended
     - name: Restore Roslyn slots
-      uses: glennawatson/actions-common/.github/actions/restore-roslyn-slots@main
+      uses: ./.github/actions/restore-roslyn-slots
     - name: Build
       uses: glennawatson/actions-common/.github/actions/dotnet-build@main
       with:

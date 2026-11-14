@@ -16,14 +16,29 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
-    uses: glennawatson/actions-common/.github/workflows/workflow-common-setup-and-build.yml@main
-    with:
-      runner: ${{ matrix.os }}
-      solutionFile: PublicApiSharp.Analyzers.slnx
-      minverTagPrefix: ''
-      minverMinimumMajorMinor: '1.0'
-      minverAutoIncrement: 'patch'
-      dotnetVersions: |
-        10.0.x
-        11.0.x
-      restoreRoslynSlots: true
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        fetch-depth: 0
+    - name: Setup .NET Environment
+      uses: glennawatson/actions-common/.github/actions/dotnet-environment@main
+      with:
+        minver-tag-prefix: ''
+        minver-minimum-major-minor: '1.0'
+        minver-auto-increment: 'patch'
+        dotnet-versions: |
+          10.0.x
+          11.0.x
+    - name: Restore Roslyn slots
+      uses: ./.github/actions/restore-roslyn-slots
+    - name: Build
+      uses: glennawatson/actions-common/.github/actions/dotnet-build@main
+      with:
+        solution-file: PublicApiSharp.Analyzers.slnx
+        create-packages: 'false'
+    - name: Test
+      uses: glennawatson/actions-common/.github/actions/dotnet-test@main
+      with:
+        solution-file: PublicApiSharp.Analyzers.slnx
