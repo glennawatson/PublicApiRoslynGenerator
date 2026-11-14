@@ -46,8 +46,18 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.CodeFix.Testing" Version="1.1.4" />
     <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0" />
     <PackageVersion Include="TUnit" Version="1.84.0" />
-    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.15" Condition="!$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net11.0'))" />
-    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="11.0.0" Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net11.0'))" />
   </ItemGroup>
 
+  <Choose>
+    <When Condition="'$(TargetFramework)' != '' And $([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net11.0'))">
+      <ItemGroup>
+        <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="11.0.0" />
+      </ItemGroup>
+    </When>
+    <Otherwise>
+      <ItemGroup>
+        <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
+      </ItemGroup>
+    </Otherwise>
+  </Choose>
 </Project>
