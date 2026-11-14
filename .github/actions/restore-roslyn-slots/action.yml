@@ -19,8 +19,10 @@ inputs:
 runs:
   using: composite
   steps:
-  - uses: glennawatson/actions-common/.github/actions/restore-roslyn-slots@main
-    with:
-      src-folder: ${{ inputs.src-folder }}
-      projects: ${{ inputs.projects }}
-      slots: ${{ inputs.slots }}
+  - name: Restore Roslyn package versions
+    shell: bash
+    env:
+      SRC_FOLDER: ${{ inputs.src-folder }}
+      PROJECTS: ${{ inputs.projects }}
+      SLOTS: ${{ inputs.slots }}
+    run: dotnet run --file "$GITHUB_ACTION_PATH/restore-roslyn-slots.cs"
